@@ -76,14 +76,14 @@ end
 
 function SignatureHelp:create_float_window(contents)
   local width = math.min(45, vim.o.columns)
-  local height = math.min(#contents, 4)
+  local height = math.min(#contents, 10)
 
   local cursor = api.nvim_win_get_cursor(0)
   local row = cursor[1] - api.nvim_win_get_cursor(0)[1]
 
   local win_config = {
     relative = "cursor",
-    row = row - 7,
+    row = row + 1,
     col = 0,
     width = width,
     height = height,
