@@ -8,6 +8,10 @@ A little (smart maybe) lsp signature helper for neovim.
 
 This Neovim plugin provides a signature help feature for LSP (Language Server Protocol) clients. It displays function signatures and parameter information in a floating window as you type in insert mode or move the cursor in normal mode. The plugin also includes a notification system to display messages with different levels of severity (info, warning, error).
 
+
+# Demo (WIP)
+![Demo](https://github.com/user-attachments/assets/fcdb6561-e616-4df7-9f5c-1d22b9297b0e)
+
 ## Features
 
 - **Signature Help**: Displays function signatures and parameter information in a floating window.
