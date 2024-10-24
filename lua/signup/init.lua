@@ -29,6 +29,10 @@ function SignatureHelp.new()
       },
       border = "rounded",
       winblend = 10,
+      offset = {
+        x = 2,
+        y = 2,
+      },
     }
   }, SignatureHelp)
 end
@@ -80,11 +84,19 @@ function SignatureHelp:create_float_window(contents)
 
   local cursor = api.nvim_win_get_cursor(0)
   local row = cursor[1] - api.nvim_win_get_cursor(0)[1]
+  local col = cursor[2]
+
+  -- Apply offset if nvim-cmp is visible
+  local cmp_visible = vim.fn.exists('*cmp#visible') == 1 and vim.fn.eval('cmp#visible()') == 1
+  if cmp_visible then
+    row = row + self.config.offset.y
+    col = col + self.config.offset.x
+  end
 
   local win_config = {
     relative = "cursor",
     row = row + 1,
-    col = 0,
+    col = col,
     width = width,
     height = height,
     style = "minimal",
