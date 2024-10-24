@@ -30,8 +30,8 @@ function SignatureHelp.new()
       border = "rounded",
       winblend = 10,
       offset = {
-        x = 2,
-        y = 2,
+        x = 6,
+        y = 1,
       },
     }
   }, SignatureHelp)
