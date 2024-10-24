@@ -1,5 +1,4 @@
 local api = vim.api
-
 local M = {}
 
 local SignatureHelp = {}
@@ -74,17 +73,14 @@ local function markdown_for_signature_list(signatures, config)
   return lines, labels
 end
 
-function SignatureHelp:create_float_window(contents)
+function SignatureHelp:create_float_window(contents, position)
   local width = math.min(45, vim.o.columns)
   local height = math.min(#contents, 10)
 
-  local cursor = api.nvim_win_get_cursor(0)
-  local row = cursor[1] - api.nvim_win_get_cursor(0)[1]
-
   local win_config = {
-    relative = "cursor",
-    row = row + 1,
-    col = 0,
+    relative = "editor",
+    row = position.row,
+    col = position.col,
     width = width,
     height = height,
     style = "minimal",
@@ -173,12 +169,27 @@ function SignatureHelp:display(result)
   self.current_signatures = result.signatures
 
   if #markdown > 0 then
-    self:create_float_window(markdown)
+    local position = self:get_dynamic_position()
+    self:create_float_window(markdown, position)
     api.nvim_buf_set_option(self.buf, "filetype", "markdown")
     self:set_active_parameter_highlights(result.activeParameter, result.signatures, labels)
     self:apply_treesitter_highlighting()
   else
     self:hide()
+  end
+end
+
+function SignatureHelp:get_dynamic_position()
+  local cursor = api.nvim_win_get_cursor(0)
+  local row = cursor[1] - 1
+  local col = cursor[2]
+
+  if vim.fn.pumvisible() == 1 then
+    local pum_height = vim.fn.pumheight()
+    local pum_width = vim.fn.pumwidth()
+    return { row = row, col = col + pum_width + 1 }
+  else
+    return { row = row, col = col }
   end
 end
 
