@@ -98,14 +98,14 @@ function SignatureHelp:create_float_window(contents)
   local col = cursor[2]
 
   -- Check if nvim-cmp is visible
-  local cmp_visible = fn.exists('*cmp#visible') == 1 and fn.eval('cmp#visible()') == 1
+  local cmp_visible = require("cmp").visible()
   if cmp_visible then
     row = row + self.config.offset.y
     col = col + self.config.offset.x
   end
 
   local win_config = {
-    relative = "editor",
+    relative = "cursor",
     row = row + 1,
     col = col,
     width = width,
@@ -208,19 +208,9 @@ function SignatureHelp:display(result)
     self:create_float_window(markdown)
     api.nvim_buf_set_option(self.buf, "filetype", "markdown")
     self:set_active_parameter_highlights(result.activeParameter, result.signatures, labels)
-    self:apply_treesitter_highlighting()
   else
     self:hide()
   end
-end
-
--- Function to apply treesitter highlighting
-function SignatureHelp:apply_treesitter_highlighting()
-  if not pcall(require, "nvim-treesitter") then
-    return
-  end
-
-  require("nvim-treesitter.highlight").attach(self.buf, "markdown")
 end
 
 -- Function to trigger the signature help
@@ -286,7 +276,7 @@ function SignatureHelp:setup_autocmds()
   api.nvim_create_autocmd({ "CursorMovedI", "TextChangedI" }, {
     group = group,
     callback = function()
-      local cmp_visible = fn.exists('*cmp#visible') == 1 and fn.eval('cmp#visible()') == 1
+      local cmp_visible = require("cmp").visible()
       if cmp_visible then
         self:hide()
       elseif fn.pumvisible() == 0 then
@@ -327,7 +317,6 @@ function SignatureHelp:setup_autocmds()
     group = group,
     callback = function()
       if self.visible then
-        self:apply_treesitter_highlighting()
         self:set_active_parameter_highlights(self.current_signatures.activeParameter, self.current_signatures, {})
       end
     end
@@ -344,17 +333,6 @@ function M.setup(opts)
   vim.keymap.set("n", toggle_key, function()
     signature_help:toggle_normal_mode()
   end, { noremap = true, silent = true, desc = "Toggle signature help in normal mode" })
-
-  if pcall(require, "nvim-treesitter") then
-    require("nvim-treesitter").define_modules({
-      signature_help_highlighting = {
-        module_path = "signature_help.highlighting",
-        is_supported = function(lang)
-          return lang == "markdown"
-        end,
-      },
-    })
-  end
 
   cmd(string.format([[
         highlight default LspSignatureActiveParameter guifg=#c8d3f5 guibg=#4ec9b0 gui=bold
