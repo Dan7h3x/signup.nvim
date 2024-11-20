@@ -27,7 +27,7 @@ function SignatureHelp.new()
         method = "#f009ff",
         documentation = "#4ff6ae",
       },
-      border = "rounded",
+      border = "shadow",
       winblend = 10,
     }
   }, SignatureHelp)
@@ -98,13 +98,17 @@ function SignatureHelp:create_float_window(contents)
     self.win = api.nvim_open_win(self.buf, false, win_config)
   end
 
-  api.nvim_buf_set_option(self.buf, "modifiable", true)
-  api.nvim_buf_set_lines(self.buf, 0, -1, false, contents)
-  api.nvim_buf_set_option(self.buf, "modifiable", false)
-  api.nvim_win_set_option(self.win, "foldenable", false)
-  api.nvim_win_set_option(self.win, "wrap", true)
-  api.nvim_win_set_option(self.win, "winblend", self.config.winblend)
 
+  -- Set buffer options
+  api.nvim_set_option_value("modifiable", true, { scope = "buffer", buf = self.buf })
+  api.nvim_buf_set_lines(self.buf, 0, -1, false, contents)
+  api.nvim_set_option_value("modifiable", false, { scope = "buffer", buf = self.buf })
+
+  -- Set window options
+  api.nvim_set_option_value("foldenable", false, { scope = "local", win = self.win })
+  api.nvim_set_option_value("wrap", true, { scope = "local", win = self.win })
+  api.nvim_set_option_value("winblend", self.config.winblend, { scope = "local", win = self.win })
+  vim.api.nvim_set_option_value('spell', false, { scope = 'local', win = self.win })
   self.visible = true
 end
 
@@ -173,7 +177,7 @@ function SignatureHelp:display(result)
 
   if #markdown > 0 then
     self:create_float_window(markdown)
-    api.nvim_buf_set_option(self.buf, "filetype", "markdown")
+    api.nvim_set_option_value('filetype', 'markdown', { buf = self.buf, scope = 'local' })
     self:set_active_parameter_highlights(result.activeParameter, result.signatures, labels)
     self:apply_treesitter_highlighting()
   else
@@ -304,7 +308,7 @@ function M.setup(opts)
 
   local toggle_key = opts.toggle_key or "<C-k>"
   vim.keymap.set("n", toggle_key, function()
-    signature_help:toggle_normal_mode()
+    signature_help:debounced_trigger()
   end, { noremap = true, silent = true, desc = "Toggle signature help in normal mode" })
 
   if pcall(require, "nvim-treesitter") then
@@ -319,7 +323,7 @@ function M.setup(opts)
   end
 
   vim.cmd(string.format([[
-        highlight default LspSignatureActiveParameter guifg=#def9f7 guibg=#3a81f5 gui=bold
+        highlight default LspSignatureActiveParameter guifg=#1e3917 guibg=#faf1f5 gui=bold
         highlight default link FloatBorder Normal
         highlight default NormalFloat guibg=#1e1e1e guifg=#d4d4d4
         highlight default SignatureHelpMethod guifg=%s
