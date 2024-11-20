@@ -105,7 +105,7 @@ function SignatureHelp:create_float_window(contents)
   end
 
   local win_config = {
-    relative = "cursor",
+    relative = "editor",
     row = row + 1,
     col = col,
     width = width,
