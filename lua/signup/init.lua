@@ -1,4 +1,7 @@
 local api = vim.api
+local lsp = vim.lsp
+local fn = vim.fn
+local cmd = vim.cmd
 
 local M = {}
 
@@ -7,36 +10,38 @@ local SignatureHelp = {}
 SignatureHelp.__index = SignatureHelp
 
 -- Constructor for SignatureHelp
-function SignatureHelp.new()
-  return setmetatable({
-    win = nil,
-    buf = nil,
-    timer = nil,
-    visible = false,
-    current_signatures = nil,
-    enabled = false,
-    normal_mode_active = false,
-    config = {
-      silent = false,
-      number = true,
-      icons = {
-        parameter = " ",
-        method = " ",
-        documentation = " ",
-      },
-      colors = {
-        parameter = "#86e1fc",
-        method = "#c099ff",
-        documentation = "#4fd6be",
-      },
-      border = "rounded",
-      winblend = 10,
-      offset = {
-        x = 6,
-        y = 1,
-      },
-    }
-  }, SignatureHelp)
+function SignatureHelp.new(config)
+  local self = setmetatable({}, SignatureHelp)
+  self.config = vim.tbl_deep_extend("force", {
+    silent = false,
+    number = true,
+    icons = {
+      parameter = " ",
+      method = " ",
+      documentation = " ",
+    },
+    colors = {
+      parameter = "#86e1fc",
+      method = "#c099ff",
+      documentation = "#4fd6be",
+    },
+    border = "rounded",
+    winblend = 10,
+    offset = {
+      x = 6,
+      y = 1,
+    },
+  }, config or {})
+
+  self.win = nil
+  self.buf = nil
+  self.timer = nil
+  self.visible = false
+  self.current_signatures = nil
+  self.enabled = false
+  self.normal_mode_active = false
+
+  return self
 end
 
 -- Helper function to generate comment string for signature index
@@ -47,7 +52,6 @@ local function signature_index_comment(index)
     return '(' .. index .. ')'
   end
 end
-
 -- Function to generate markdown content for signature list
 local function markdown_for_signature_list(signatures, config)
   local lines, labels = {}, {}
@@ -82,6 +86,9 @@ local function markdown_for_signature_list(signatures, config)
   return lines, labels
 end
 
+
+
+
 -- Function to create a floating window for displaying signatures
 function SignatureHelp:create_float_window(contents)
   local width = math.min(45, vim.o.columns)
@@ -92,7 +99,7 @@ function SignatureHelp:create_float_window(contents)
   local col = cursor[2]
 
   -- Check if nvim-cmp is visible
-  local cmp_visible = vim.fn.exists('*cmp#visible') == 1 and vim.fn.eval('cmp#visible()') == 1
+  local cmp_visible = fn.exists('*cmp#visible') == 1 and fn.eval('cmp#visible()') == 1
   if cmp_visible then
     row = row + self.config.offset.y
     col = col + self.config.offset.x
@@ -220,8 +227,8 @@ end
 function SignatureHelp:trigger()
   if not self.enabled then return end
 
-  local params = vim.lsp.util.make_position_params()
-  vim.lsp.buf_request(0, "textDocument/signatureHelp", params, function(err, result, _, _)
+  local params = lsp.util.make_position_params()
+  lsp.buf_request(0, "textDocument/signatureHelp", params, function(err, result, _, _)
     if err then
       if not self.config.silent then
         vim.notify("Error in LSP Signature Help: " .. vim.inspect(err), vim.log.levels.ERROR)
@@ -243,7 +250,7 @@ end
 
 -- Function to check if the LSP client supports signature help
 function SignatureHelp:check_capability()
-  local clients = vim.lsp.get_clients()
+  local clients = lsp.get_clients()
   for _, client in ipairs(clients) do
     if client.server_capabilities.signatureHelpProvider then
       self.enabled = true
@@ -269,9 +276,9 @@ function SignatureHelp:setup_autocmds()
 
   local function debounced_trigger()
     if self.timer then
-      vim.fn.timer_stop(self.timer)
+      fn.timer_stop(self.timer)
     end
-    self.timer = vim.fn.timer_start(30, function()
+    self.timer = fn.timer_start(30, function()
       self:trigger()
     end)
   end
@@ -279,10 +286,10 @@ function SignatureHelp:setup_autocmds()
   api.nvim_create_autocmd({ "CursorMovedI", "TextChangedI" }, {
     group = group,
     callback = function()
-      local cmp_visible = vim.fn.exists('*cmp#visible') == 1 and vim.fn.eval('cmp#visible()') == 1
+      local cmp_visible = fn.exists('*cmp#visible') == 1 and fn.eval('cmp#visible()') == 1
       if cmp_visible then
         self:hide()
-      elseif vim.fn.pumvisible() == 0 then
+      elseif fn.pumvisible() == 0 then
         debounced_trigger()
       else
         self:hide()
@@ -330,8 +337,7 @@ end
 -- Setup function for the plugin
 function M.setup(opts)
   opts = opts or {}
-  local signature_help = SignatureHelp.new()
-  signature_help.config = vim.tbl_deep_extend("force", signature_help.config, opts)
+  local signature_help = SignatureHelp.new(opts)
   signature_help:setup_autocmds()
 
   local toggle_key = opts.toggle_key or "<C-k>"
@@ -350,7 +356,7 @@ function M.setup(opts)
     })
   end
 
-  vim.cmd(string.format([[
+  cmd(string.format([[
         highlight default LspSignatureActiveParameter guifg=#c8d3f5 guibg=#4ec9b0 gui=bold
         highlight default link FloatBorder Normal
         highlight default NormalFloat guibg=#1e1e1e guifg=#d4d4d4
@@ -361,7 +367,7 @@ function M.setup(opts)
     signature_help.config.colors.documentation))
 
   if opts.override then
-    vim.lsp.handlers["textDocument/signatureHelp"] = function(_, result, context, config)
+    lsp.handlers["textDocument/signatureHelp"] = function(_, result, context, config)
       config = vim.tbl_deep_extend("force", signature_help.config, config or {})
       signature_help:display(result)
     end
