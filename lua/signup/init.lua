@@ -2,9 +2,11 @@ local api = vim.api
 
 local M = {}
 
+-- SignatureHelp class definition
 local SignatureHelp = {}
 SignatureHelp.__index = SignatureHelp
 
+-- Constructor for SignatureHelp
 function SignatureHelp.new()
   return setmetatable({
     win = nil,
@@ -37,6 +39,7 @@ function SignatureHelp.new()
   }, SignatureHelp)
 end
 
+-- Helper function to generate comment string for signature index
 local function signature_index_comment(index)
   if #vim.bo.commentstring ~= 0 then
     return vim.bo.commentstring:format(index)
@@ -45,6 +48,7 @@ local function signature_index_comment(index)
   end
 end
 
+-- Function to generate markdown content for signature list
 local function markdown_for_signature_list(signatures, config)
   local lines, labels = {}, {}
   local number = config.number and #signatures > 1
@@ -78,6 +82,7 @@ local function markdown_for_signature_list(signatures, config)
   return lines, labels
 end
 
+-- Function to create a floating window for displaying signatures
 function SignatureHelp:create_float_window(contents)
   local width = math.min(45, vim.o.columns)
   local height = math.min(#contents, 10)
@@ -121,6 +126,7 @@ function SignatureHelp:create_float_window(contents)
   self.visible = true
 end
 
+-- Function to hide the floating window
 function SignatureHelp:hide()
   if self.visible then
     pcall(api.nvim_win_close, self.win, true)
@@ -132,6 +138,7 @@ function SignatureHelp:hide()
   end
 end
 
+-- Function to set active parameter highlights
 function SignatureHelp:set_active_parameter_highlights(active_parameter, signatures, labels)
   if not self.buf or not api.nvim_buf_is_valid(self.buf) then return end
 
@@ -140,11 +147,13 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
   for index, signature in ipairs(signatures) do
     local parameter = signature.activeParameter or active_parameter
     if parameter and parameter >= 0 and parameter < #signature.parameters then
-      local label = signature.parameters[parameter + 1].label
+      local param = signature.parameters[parameter + 1]
+      local label = param.label
       if type(label) == "string" then
         local start_col, end_col = string.find(signature.label, label, 1, true)
         if start_col and end_col then
-          api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index] - 1, start_col - 1, end_col)
+          api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index] - 1, start_col - 1,
+            end_col)
         end
       elseif type(label) == "table" then
         api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index] - 1, unpack(label))
@@ -173,6 +182,7 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
   end
 end
 
+-- Function to display the signature help
 function SignatureHelp:display(result)
   if not result or not result.signatures or #result.signatures == 0 then
     self:hide()
@@ -197,6 +207,7 @@ function SignatureHelp:display(result)
   end
 end
 
+-- Function to apply treesitter highlighting
 function SignatureHelp:apply_treesitter_highlighting()
   if not pcall(require, "nvim-treesitter") then
     return
@@ -205,6 +216,7 @@ function SignatureHelp:apply_treesitter_highlighting()
   require("nvim-treesitter.highlight").attach(self.buf, "markdown")
 end
 
+-- Function to trigger the signature help
 function SignatureHelp:trigger()
   if not self.enabled then return end
 
@@ -229,6 +241,7 @@ function SignatureHelp:trigger()
   end)
 end
 
+-- Function to check if the LSP client supports signature help
 function SignatureHelp:check_capability()
   local clients = vim.lsp.get_clients()
   for _, client in ipairs(clients) do
@@ -240,6 +253,7 @@ function SignatureHelp:check_capability()
   self.enabled = false
 end
 
+-- Function to toggle signature help in normal mode
 function SignatureHelp:toggle_normal_mode()
   self.normal_mode_active = not self.normal_mode_active
   if self.normal_mode_active then
@@ -249,6 +263,7 @@ function SignatureHelp:toggle_normal_mode()
   end
 end
 
+-- Function to setup autocommands for triggering signature help
 function SignatureHelp:setup_autocmds()
   local group = api.nvim_create_augroup("LspSignatureHelp", { clear = true })
 
@@ -312,6 +327,7 @@ function SignatureHelp:setup_autocmds()
   })
 end
 
+-- Setup function for the plugin
 function M.setup(opts)
   opts = opts or {}
   local signature_help = SignatureHelp.new()
