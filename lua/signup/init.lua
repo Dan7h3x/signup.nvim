@@ -82,7 +82,7 @@ function SignatureHelp:create_float_window(contents)
   local row = cursor[1] - api.nvim_win_get_cursor(0)[1]
 
   local win_config = {
-    relative = "cursor",
+    relative = "editor",
     row = row + 1,
     col = 0,
     width = width,
