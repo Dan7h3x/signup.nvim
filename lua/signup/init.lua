@@ -82,7 +82,7 @@ function SignatureHelp:create_float_window(contents)
   local row = cursor[1] - api.nvim_win_get_cursor(0)[1]
 
   local win_config = {
-    relative = "editor",
+    relative = "cursor",
     row = row + 1,
     col = 0,
     width = width,
@@ -249,7 +249,7 @@ function SignatureHelp:setup_autocmds()
   api.nvim_create_autocmd({ "CursorMovedI", "TextChangedI" }, {
     group = group,
     callback = function()
-      local cmp_visible = vim.fn.exists('*cmp#visible') == 1 and vim.fn.eval('cmp#visible()') == 1
+      local cmp_visible = require("cmp").visible()
       if cmp_visible then
         self:hide()
       elseif vim.fn.pumvisible() == 0 then
