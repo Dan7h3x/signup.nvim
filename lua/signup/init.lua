@@ -86,7 +86,7 @@ function SignatureHelp:create_float_window(contents)
   local row = cursor[1] - api.nvim_win_get_cursor(0)[1]
   local col = cursor[2]
 
-  -- Apply offset if nvim-cmp is visible
+  -- Check if nvim-cmp is visible
   local cmp_visible = vim.fn.exists('*cmp#visible') == 1 and vim.fn.eval('cmp#visible()') == 1
   if cmp_visible then
     row = row + self.config.offset.y
@@ -142,9 +142,12 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
     if parameter and parameter >= 0 and parameter < #signature.parameters then
       local label = signature.parameters[parameter + 1].label
       if type(label) == "string" then
-        vim.fn.matchadd("LspSignatureActiveParameter", "\\<" .. label .. "\\>")
+        local start_col, end_col = string.find(signature.label, label, 1, true)
+        if start_col and end_col then
+          api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index] - 1, start_col - 1, end_col)
+        end
       elseif type(label) == "table" then
-        api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index], unpack(label))
+        api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index] - 1, unpack(label))
       end
     end
   end
