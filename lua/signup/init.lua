@@ -53,13 +53,13 @@ local function markdown_for_signature_list(signatures, config)
     table.insert(lines, string.format("%s %s%s", config.icons.method, signature.label, suffix))
     table.insert(lines, "```")
 
-    -- if signature.parameters and #signature.parameters > 0 then
-    --   table.insert(lines, "")
-    --   table.insert(lines, string.format("%s Parameters:", config.icons.parameter))
-    --   for _, param in ipairs(signature.parameters) do
-    --     table.insert(lines, string.format("  • %s", param.label))
-    --   end
-    -- end
+    if signature.parameters and #signature.parameters > 0 then
+      table.insert(lines, "")
+      table.insert(lines, string.format("%s Parameters:", config.icons.parameter))
+      for _, param in ipairs(signature.parameters) do
+        table.insert(lines, string.format("  • %s", param.label))
+      end
+    end
 
     if signature.documentation then
       table.insert(lines, "")
@@ -98,16 +98,13 @@ function SignatureHelp:create_float_window(contents)
     self.buf = api.nvim_create_buf(false, true)
     self.win = api.nvim_open_win(self.buf, false, win_config)
   end
-  -- Set buffer options
-  api.nvim_set_option_value("modifiable", true, { scope = "local", buf = self.buf })
-  api.nvim_buf_set_lines(self.buf, 0, -1, false, contents)
-  api.nvim_set_option_value("modifiable", false, { scope = "local", buf = self.buf })
 
-  -- Set window options
-  api.nvim_set_option_value("foldenable", false, { scope = "local", win = self.win })
-  api.nvim_set_option_value("wrap", true, { scope = "local", win = self.win })
-  api.nvim_set_option_value("winblend", self.config.winblend, { scope = "local", win = self.win })
-  api.nvim_set_option_value('spell', false, { scope = 'local', win = self.win })
+  api.nvim_buf_set_option(self.buf, "modifiable", true)
+  api.nvim_buf_set_lines(self.buf, 0, -1, false, contents)
+  api.nvim_buf_set_option(self.buf, "modifiable", false)
+  api.nvim_win_set_option(self.win, "foldenable", false)
+  api.nvim_win_set_option(self.win, "wrap", true)
+  api.nvim_win_set_option(self.win, "winblend", self.config.winblend)
 
   self.visible = true
 end
@@ -133,11 +130,7 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
     if parameter and parameter >= 0 and parameter < #signature.parameters then
       local label = signature.parameters[parameter + 1].label
       if type(label) == "string" then
-        local parts = vim.split(label, ",%s*")
-        if parts[parameter + 1] then
-          local activepart = parts[parameter + 1]
-          vim.fn.matchadd("LspSignatureActiveParameter", "\\<" .. activepart .. "\\>")
-        end
+        vim.fn.matchadd("LspSignatureActiveParameter", "\\<" .. label .. "\\>")
       elseif type(label) == "table" then
         api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index], unpack(label))
       end
