@@ -100,9 +100,9 @@ function SignatureHelp:create_float_window(contents)
 
 
   -- Set buffer options
-  api.nvim_set_option_value("modifiable", true, { scope = "buffer", buf = self.buf })
+  api.nvim_set_option_value("modifiable", true, { scope = "local", buf = self.buf })
   api.nvim_buf_set_lines(self.buf, 0, -1, false, contents)
-  api.nvim_set_option_value("modifiable", false, { scope = "buffer", buf = self.buf })
+  api.nvim_set_option_value("modifiable", false, { scope = "local", buf = self.buf })
 
   -- Set window options
   api.nvim_set_option_value("foldenable", false, { scope = "local", win = self.win })
