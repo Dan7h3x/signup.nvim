@@ -126,7 +126,7 @@ function SignatureHelp:create_float_window(contents)
   api.nvim_buf_set_lines(self.buf, 0, -1, false, contents)
   api.nvim_buf_set_option(self.buf, "modifiable", false)
   api.nvim_win_set_option(self.win, "foldenable", false)
-  api.nvim_win_set_option(self.win, "wrap", false)
+  api.nvim_win_set_option(self.win, "wrap", true)
   api.nvim_win_set_option(self.win, "winblend", self.config.winblend)
 
   self.visible = true
