@@ -29,7 +29,9 @@ function SignatureHelp.new()
       },
       border = "rounded",
       winblend = 20,
-    }
+    },
+    _ns = vim.api.nvim_create_namespace('signature_help'),
+    _highlight_cache = {},
   }, SignatureHelp)
 end
 
@@ -111,6 +113,15 @@ end
 
 function SignatureHelp:hide()
   if self.visible then
+    if self.timer then
+      vim.fn.timer_stop(self.timer)
+      self.timer = nil
+    end
+    
+    if self.buf then
+      self._highlight_cache[self.buf] = nil
+    end
+    
     pcall(api.nvim_win_close, self.win, true)
     pcall(api.nvim_buf_delete, self.buf, { force = true })
     self.win = nil
@@ -123,37 +134,28 @@ end
 function SignatureHelp:set_active_parameter_highlights(active_parameter, signatures, labels)
   if not self.buf or not api.nvim_buf_is_valid(self.buf) then return end
 
-  api.nvim_buf_clear_namespace(self.buf, -1, 0, -1)
+  api.nvim_buf_clear_namespace(self.buf, self._ns, 0, -1)
+
+  if not self._highlight_cache[self.buf] then
+    self._highlight_cache[self.buf] = {}
+  end
 
   for index, signature in ipairs(signatures) do
     local parameter = signature.activeParameter or active_parameter
     if parameter and parameter >= 0 and parameter < #signature.parameters then
       local label = signature.parameters[parameter + 1].label
       if type(label) == "string" then
-        vim.fn.matchadd("LspSignatureActiveParameter", "\\<" .. label .. "\\>")
+        local line = labels[index]
+        local line_text = api.nvim_buf_get_lines(self.buf, line - 1, line, false)[1]
+        local start_idx = line_text:find(vim.pesc(label))
+        if start_idx then
+          api.nvim_buf_add_highlight(self.buf, self._ns, "LspSignatureActiveParameter", 
+            line - 1, start_idx - 1, start_idx + #label - 1)
+        end
       elseif type(label) == "table" then
-        api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index], unpack(label))
+        api.nvim_buf_add_highlight(self.buf, self._ns, "LspSignatureActiveParameter", 
+          labels[index], unpack(label))
       end
-    end
-  end
-
-  -- Add icon highlights
-  local icon_highlights = {
-    { self.config.icons.method,        "SignatureHelpMethod" },
-    { self.config.icons.parameter,     "SignatureHelpParameter" },
-    { self.config.icons.documentation, "SignatureHelpDocumentation" },
-  }
-
-  for _, icon_hl in ipairs(icon_highlights) do
-    local icon, hl_group = unpack(icon_hl)
-    local line_num = 0
-    while line_num < api.nvim_buf_line_count(self.buf) do
-      local line = api.nvim_buf_get_lines(self.buf, line_num, line_num + 1, false)[1]
-      local start_col = line:find(vim.pesc(icon))
-      if start_col then
-        api.nvim_buf_add_highlight(self.buf, -1, hl_group, line_num, start_col - 1, start_col + #icon - 1)
-      end
-      line_num = line_num + 1
     end
   end
 end
@@ -192,9 +194,19 @@ end
 
 function SignatureHelp:trigger()
   if not self.enabled then return end
+  
+  local bufnr = api.nvim_get_current_buf()
+  if not api.nvim_buf_is_valid(bufnr) then return end
+
+  if not self._has_signature_help_checked then
+    self:check_capability()
+    self._has_signature_help_checked = true
+  end
 
   local params = vim.lsp.util.make_position_params()
-  vim.lsp.buf_request(0, "textDocument/signatureHelp", params, function(err, result, _, _)
+  vim.lsp.buf_request(bufnr, "textDocument/signatureHelp", params, function(err, result, _, _)
+    if not api.nvim_buf_is_valid(bufnr) then return end
+    
     if err then
       if not self.config.silent then
         vim.notify("Error in LSP Signature Help: " .. vim.inspect(err), vim.log.levels.ERROR)
@@ -204,7 +216,9 @@ function SignatureHelp:trigger()
     end
 
     if result then
-      self:display(result)
+      if not vim.deep_equal(result, self.current_signatures) then
+        self:display(result)
+      end
     else
       self:hide()
       if not self.config.silent then
@@ -236,12 +250,14 @@ end
 
 function SignatureHelp:setup_autocmds()
   local group = api.nvim_create_augroup("LspSignatureHelp", { clear = true })
-
+  
+  local debounce_timer = nil
   local function debounced_trigger()
-    if self.timer then
-      vim.fn.timer_stop(self.timer)
+    if debounce_timer then
+      vim.fn.timer_stop(debounce_timer)
     end
-    self.timer = vim.fn.timer_start(30, function()
+    debounce_timer = vim.fn.timer_start(30, function()
+      debounce_timer = nil
       self:trigger()
     end)
   end
@@ -335,6 +351,109 @@ function M.setup(opts)
       signature_help:display(result)
     end
   end
+
+  -- Cleanup previous instance if exists
+  if M._current_instance then
+    M._current_instance:hide()
+  end
+  
+  M._current_instance = signature_help
+  
+  -- Add cleanup on vim exit
+  api.nvim_create_autocmd("VimLeavePre", {
+    callback = function()
+      if M._current_instance then
+        M._current_instance:hide()
+      end
+    end
+  })
+end
+
+-- Add new highlight definitions
+local function setup_highlights()
+  local highlights = {
+    SignatureActiveParameter = {
+      fg = "#89DCEB", -- Bright cyan for active parameter
+      bold = true
+    },
+    SignatureParameterType = {
+      fg = "#94E2D5", -- Muted teal for type info
+      italic = true  
+    },
+    SignatureParameterDoc = {
+      fg = "#BAC2DE", -- Light gray for docs
+      italic = true
+    },
+    SignatureDoc = {
+      bg = "#1E1E2E", -- Dark background for doc float
+    },
+    SignatureDocBorder = {
+      fg = "#89DCEB", -- Cyan border for doc window
+    }
+  }
+
+  for group, settings in pairs(highlights) do
+    vim.api.nvim_set_hl(0, group, settings)
+  end
+end
+
+local function create_doc_window(parameter_info)
+  -- Create dedicated documentation float window
+  local docs = {
+    -- Format parameter documentation
+    "Parameter: " .. (parameter_info.name or ""),
+    "Type: " .. (parameter_info.type or ""),
+    "", -- Empty line separator
+    parameter_info.doc or ""
+  }
+
+  local opts = {
+    relative = 'cursor',
+    width = 60,
+    height = 10,
+    style = 'minimal',
+    border = 'rounded',
+    title = ' Documentation ',
+    title_pos = 'center'
+  }
+
+  -- Create buffer and window
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, docs)
+  
+  local win = vim.api.nvim_open_win(buf, false, opts)
+  
+  -- Add highlights
+  vim.api.nvim_win_set_option(win, 'winhl', 'Normal:SignatureDoc,FloatBorder:SignatureDocBorder')
+  
+  return win, buf
+end
+
+local function enhanced_virtual_hint(hint, parameter_info, off_y)
+  if not hint then return end
+  
+  local vt_ns = vim.api.nvim_create_namespace('enhanced_signature_vt')
+  
+  -- Create styled virtual text
+  local vt = {
+    -- Parameter name with custom highlight
+    { parameter_info.name or "", "SignatureActiveParameter" },
+    -- Parameter type if available
+    { ": " .. (parameter_info.type or ""), "SignatureParameterType" },
+    -- Parameter description in muted color
+    { " " .. (parameter_info.doc or ""), "SignatureParameterDoc" }
+  }
+
+  -- Position virtual text based on context
+  local pos_opts = {
+    virt_text = vt,
+    virt_text_pos = 'eol',
+    hl_mode = 'combine',
+    priority = 100
+  }
+
+  -- Add virtual text
+  vim.api.nvim_buf_set_extmark(0, vt_ns, off_y, 0, pos_opts)
 end
 
 return M
