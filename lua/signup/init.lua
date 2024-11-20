@@ -40,6 +40,7 @@ function SignatureHelp.new(config)
   self.current_signatures = nil
   self.enabled = false
   self.normal_mode_active = false
+  self.active_parameter_index = 0
 
   return self
 end
@@ -52,6 +53,7 @@ local function signature_index_comment(index)
     return '(' .. index .. ')'
   end
 end
+
 -- Function to generate markdown content for signature list
 local function markdown_for_signature_list(signatures, config)
   local lines, labels = {}, {}
@@ -85,9 +87,6 @@ local function markdown_for_signature_list(signatures, config)
   end
   return lines, labels
 end
-
-
-
 
 -- Function to create a floating window for displaying signatures
 function SignatureHelp:create_float_window(contents)
@@ -142,6 +141,7 @@ function SignatureHelp:hide()
     self.buf = nil
     self.visible = false
     self.current_signatures = nil
+    self.active_parameter_index = 0
   end
 end
 
