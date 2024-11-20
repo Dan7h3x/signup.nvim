@@ -28,7 +28,7 @@ function SignatureHelp.new()
         documentation = "#4fd6be",
       },
       border = "rounded",
-      winblend = 20,
+      winblend = 10,
     }
   }, SignatureHelp)
 end
@@ -52,17 +52,16 @@ local function markdown_for_signature_list(signatures, config)
     table.insert(lines, string.format("```%s", vim.bo.filetype))
     table.insert(lines, string.format("%s %s%s", config.icons.method, signature.label, suffix))
     table.insert(lines, "```")
-
-    if signature.parameters and #signature.parameters > 0 then
-      table.insert(lines, "")
-      table.insert(lines, string.format("%s Parameters:", config.icons.parameter))
-      for _, param in ipairs(signature.parameters) do
-        table.insert(lines, string.format("  • %s", param.label))
-      end
-    end
+    -- if signature.parameters and #signature.parameters > 0 then
+    --   table.insert(lines, "")
+    --   table.insert(lines, string.format("%s Parameters:", config.icons.parameter))
+    --   for _, param in ipairs(signature.parameters) do
+    --     table.insert(lines, string.format("  • %s", param.label))
+    --   end
+    -- end
 
     if signature.documentation then
-      table.insert(lines, "")
+      table.insert(lines, "---")
       table.insert(lines, string.format("%s Documentation:", config.icons.documentation))
       vim.list_extend(lines, vim.split(signature.documentation.value or signature.documentation, "\n"))
     end
