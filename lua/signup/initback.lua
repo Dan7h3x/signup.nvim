@@ -15,7 +15,7 @@ function SignatureHelp.new()
     enabled = false,
     normal_mode_active = false,
     config = {
-      silent = false,
+      silent = true,
       number = true,
       icons = {
         parameter = " ",
@@ -23,12 +23,12 @@ function SignatureHelp.new()
         documentation = " ",
       },
       colors = {
-        parameter = "#86e1fc",
-        method = "#c099ff",
-        documentation = "#4fd6be",
+        parameter = "#00f1fc",
+        method = "#f009ff",
+        documentation = "#4ff6ae",
       },
-      border = "rounded",
-      winblend = 20,
+      border = "shadow",
+      winblend = 10,
     }
   }, SignatureHelp)
 end
@@ -50,25 +50,24 @@ local function markdown_for_signature_list(signatures, config)
     local suffix = number and (' ' .. signature_index_comment(index)) or ''
 
     table.insert(lines, string.format("```%s", vim.bo.filetype))
-    table.insert(lines, string.format("%s %s%s", config.icons.method, signature.label, suffix))
+    table.insert(lines, string.format("%s %s: %s", config.icons.method, signature.label, suffix))
     table.insert(lines, "```")
-
-    if signature.parameters and #signature.parameters > 0 then
-      table.insert(lines, "")
-      table.insert(lines, string.format("%s Parameters:", config.icons.parameter))
-      for _, param in ipairs(signature.parameters) do
-        table.insert(lines, string.format("  • %s", param.label))
-      end
-    end
+    -- if signature.parameters and #signature.parameters > 0 then
+    --   table.insert(lines, "")
+    --   table.insert(lines, string.format("%s Parameters:", config.icons.parameter))
+    --   for _, param in ipairs(signature.parameters) do
+    --     table.insert(lines, string.format("  • %s", param.label))
+    --   end
+    -- end
 
     if signature.documentation then
-      table.insert(lines, "")
+      table.insert(lines, "-------------")
       table.insert(lines, string.format("%s Documentation:", config.icons.documentation))
       vim.list_extend(lines, vim.split(signature.documentation.value or signature.documentation, "\n"))
     end
 
     if index ~= #signatures then
-      table.insert(lines, "---")
+      table.insert(lines, "-------------")
     end
   end
   return lines, labels
@@ -99,13 +98,17 @@ function SignatureHelp:create_float_window(contents)
     self.win = api.nvim_open_win(self.buf, false, win_config)
   end
 
-  api.nvim_buf_set_option(self.buf, "modifiable", true)
-  api.nvim_buf_set_lines(self.buf, 0, -1, false, contents)
-  api.nvim_buf_set_option(self.buf, "modifiable", false)
-  api.nvim_win_set_option(self.win, "foldenable", false)
-  api.nvim_win_set_option(self.win, "wrap", true)
-  api.nvim_win_set_option(self.win, "winblend", self.config.winblend)
 
+  -- Set buffer options
+  api.nvim_set_option_value("modifiable", true, { scope = "local", buf = self.buf })
+  api.nvim_buf_set_lines(self.buf, 0, -1, false, contents)
+  api.nvim_set_option_value("modifiable", false, { scope = "local", buf = self.buf })
+
+  -- Set window options
+  api.nvim_set_option_value("foldenable", false, { scope = "local", win = self.win })
+  api.nvim_set_option_value("wrap", true, { scope = "local", win = self.win })
+  api.nvim_set_option_value("winblend", self.config.winblend, { scope = "local", win = self.win })
+  vim.api.nvim_set_option_value('spell', false, { scope = 'local', win = self.win })
   self.visible = true
 end
 
@@ -120,6 +123,43 @@ function SignatureHelp:hide()
   end
 end
 
+-- function SignatureHelp:set_active_parameter_highlights(active_parameter, signatures, labels)
+--   if not self.buf or not api.nvim_buf_is_valid(self.buf) then return end
+--
+--   api.nvim_buf_clear_namespace(self.buf, -1, 0, -1)
+--
+--   for index, signature in ipairs(signatures) do
+--     local parameter = signature.activeParameter or active_parameter
+--     if parameter and parameter >= 0 and parameter < #signature.parameters then
+--       local label = signature.parameters[parameter + 1].label
+--       if type(label) == "string" then
+--         vim.fn.matchadd("LspSignatureActiveParameter", "\\<" .. label .. "\\>")
+--       elseif type(label) == "table" then
+--         api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index], unpack(label))
+--       end
+--     end
+--   end
+--
+--   -- Add icon highlights
+--   local icon_highlights = {
+--     { self.config.icons.method,        "SignatureHelpMethod" },
+--     { self.config.icons.parameter,     "SignatureHelpParameter" },
+--     { self.config.icons.documentation, "SignatureHelpDocumentation" },
+--   }
+--
+--   for _, icon_hl in ipairs(icon_highlights) do
+--     local icon, hl_group = unpack(icon_hl)
+--     local line_num = 0
+--     while line_num < api.nvim_buf_line_count(self.buf) do
+--       local line = api.nvim_buf_get_lines(self.buf, line_num, line_num + 1, false)[1]
+--       local start_col = line:find(vim.pesc(icon))
+--       if start_col then
+--         api.nvim_buf_add_highlight(self.buf, -1, hl_group, line_num, start_col - 1, start_col + #icon - 1)
+--       end
+--       line_num = line_num + 1
+--     end
+--   end
+-- end
 function SignatureHelp:set_active_parameter_highlights(active_parameter, signatures, labels)
   if not self.buf or not api.nvim_buf_is_valid(self.buf) then return end
 
@@ -130,7 +170,12 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
     if parameter and parameter >= 0 and parameter < #signature.parameters then
       local label = signature.parameters[parameter + 1].label
       if type(label) == "string" then
-        vim.fn.matchadd("LspSignatureActiveParameter", "\\<" .. label .. "\\>")
+        -- Split the label by comma and highlight the active parameter
+        local parts = vim.split(label, ",%s*")
+        if parts[parameter + 1] then
+          local active_part = parts[parameter + 1]
+          vim.fn.matchadd("LspSignatureActiveParameter", "\\<" .. active_part .. "\\>")
+        end
       elseif type(label) == "table" then
         api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index], unpack(label))
       end
@@ -174,7 +219,7 @@ function SignatureHelp:display(result)
 
   if #markdown > 0 then
     self:create_float_window(markdown)
-    api.nvim_buf_set_option(self.buf, "filetype", "markdown")
+    api.nvim_set_option_value('filetype', 'markdown', { buf = self.buf, scope = 'local' })
     self:set_active_parameter_highlights(result.activeParameter, result.signatures, labels)
     self:apply_treesitter_highlighting()
   else
@@ -306,7 +351,7 @@ function M.setup(opts)
   local toggle_key = opts.toggle_key or "<C-k>"
   vim.keymap.set("n", toggle_key, function()
     signature_help:toggle_normal_mode()
-  end, { noremap = true, silent = true, desc = "Toggle signature help in normal mode" })
+  end, { noremap = false, silent = true, desc = "Toggle signature help in normal mode" })
 
   if pcall(require, "nvim-treesitter") then
     require("nvim-treesitter").define_modules({
@@ -320,7 +365,6 @@ function M.setup(opts)
   end
 
   vim.cmd(string.format([[
-        highlight default LspSignatureActiveParameter guifg=#c8d3f5 guibg=#4ec9b0 gui=bold
         highlight default link FloatBorder Normal
         highlight default NormalFloat guibg=#1e1e1e guifg=#d4d4d4
         highlight default SignatureHelpMethod guifg=%s
