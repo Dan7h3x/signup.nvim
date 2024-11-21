@@ -98,13 +98,12 @@ function SignatureHelp:set_active_parameter_highlights(signature)
           "LspSignatureActiveParameter"
         )
 
-        -- Add parameter hint if available
-        if param.documentation then
+        -- Add parameter hint inline (optional)
+        if param.documentation and self.config.inline_hints then
           local hint = type(param.documentation) == "table" 
             and param.documentation.value 
             or param.documentation
 
-          -- Safely set extmark with bounds checking
           pcall(api.nvim_buf_set_extmark, self.buf, self._ns, 0, math.max(0, end_idx), {
             virt_text = {
               {" : ", "Comment"},
@@ -147,15 +146,26 @@ function SignatureHelp:format_signature(signature)
   local header = signature.label
   table.insert(contents, header)
   
-  -- Add documentation if available
-  if signature.documentation then
+  -- Add documentation if available and active parameter info
+  if signature.activeParameter and signature.parameters then
+    local param = signature.parameters[signature.activeParameter + 1]
+    if param and param.documentation then
+      local doc = type(param.documentation) == "table" 
+        and param.documentation.value 
+        or param.documentation
+      
+      table.insert(contents, "")
+      table.insert(contents, string.rep("─", 40))
+      table.insert(contents, self.config.icons.parameter .. " " .. doc)
+    end
+  elseif signature.documentation then
     local doc = type(signature.documentation) == "table" 
       and signature.documentation.value 
       or signature.documentation
     
     table.insert(contents, "")
-    table.insert(contents, "─".rep(40))
-    table.insert(contents, doc)
+    table.insert(contents, string.rep("─", 40))
+    table.insert(contents, self.config.icons.documentation .. " " .. doc)
   end
   
   return contents

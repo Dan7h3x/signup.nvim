@@ -55,6 +55,9 @@ M.defaults = {
     luasnip = true,       -- Trigger on LuaSnip node enter
     throttle = 50,        -- Debounce time in ms
   },
+  
+  -- Display options
+  inline_hints = true,  -- Show parameter hints inline (in addition to bottom docs)
 }
 
 ---@type SignupConfig
