@@ -76,7 +76,7 @@ local function markdown_for_signature_list(signatures, config)
   return lines, labels
 end
 
-function SignatureHelp:create_float_window(contents)
+function SignatureHelp:create_float_window(contents, signature)
   local width = math.min(45, vim.o.columns)
   local height = math.min(#contents, 10)
 
@@ -107,6 +107,34 @@ function SignatureHelp:create_float_window(contents)
   api.nvim_win_set_option(self.win, "foldenable", false)
   api.nvim_win_set_option(self.win, "wrap", true)
   api.nvim_win_set_option(self.win, "winblend", self.config.winblend)
+
+  -- Add enhanced parameter documentation
+  if signature and signature.activeParameter then
+    local param = signature.parameters[signature.activeParameter + 1]
+    if param and param.documentation then
+      local doc_contents = {
+        "Parameter: " .. param.label,
+        "Documentation:",
+        param.documentation.value or param.documentation
+      }
+      
+      -- Create secondary float for parameter details
+      local doc_buf = api.nvim_create_buf(false, true)
+      local doc_win = api.nvim_open_win(doc_buf, false, {
+        relative = "win",
+        win = self.win,
+        row = height,
+        col = 0,
+        width = width,
+        height = #doc_contents,
+        style = "minimal",
+        border = self.config.border
+      })
+      
+      api.nvim_buf_set_lines(doc_buf, 0, -1, false, doc_contents)
+      api.nvim_win_set_option(doc_win, "winblend", self.config.winblend)
+    end
+  end
 
   self.visible = true
 end
@@ -175,7 +203,7 @@ function SignatureHelp:display(result)
   self.current_signatures = result.signatures
 
   if #markdown > 0 then
-    self:create_float_window(markdown)
+    self:create_float_window(markdown, result.signatures[1])
     api.nvim_buf_set_option(self.buf, "filetype", "markdown")
     self:set_active_parameter_highlights(result.activeParameter, result.signatures, labels)
     self:apply_treesitter_highlighting()
@@ -190,6 +218,29 @@ function SignatureHelp:apply_treesitter_highlighting()
   end
 
   require("nvim-treesitter.highlight").attach(self.buf, "markdown")
+end
+
+function SignatureHelp:setup_triggers()
+  self.trigger_chars = {}
+  
+  -- Get trigger characters from LSP servers
+  local clients = vim.lsp.get_clients()
+  for _, client in ipairs(clients) do
+    if client.server_capabilities.signatureHelpProvider then
+      local chars = client.server_capabilities.signatureHelpProvider.triggerCharacters
+      if chars then
+        vim.list_extend(self.trigger_chars, chars)
+      end
+    end
+  end
+
+  -- Deduplicate trigger characters
+  self.trigger_chars = vim.fn.uniq(self.trigger_chars)
+end
+
+function SignatureHelp:should_trigger()
+  local char = vim.fn.strcharpart(vim.fn.getline('.'):sub(1, vim.fn.col('.')), -1)
+  return vim.tbl_contains(self.trigger_chars, char)
 end
 
 function SignatureHelp:trigger()
@@ -454,6 +505,32 @@ local function enhanced_virtual_hint(hint, parameter_info, off_y)
 
   -- Add virtual text
   vim.api.nvim_buf_set_extmark(0, vt_ns, off_y, 0, pos_opts)
+end
+
+function SignatureHelp:format_markdown(text)
+  if not text then return {} end
+  
+  -- Convert common markdown elements
+  local lines = vim.split(text, "\n")
+  local formatted = {}
+  
+  for _, line in ipairs(lines) do
+    -- Convert code blocks
+    line = line:gsub("```(%w+)(.-?)```", function(lang, code)
+      return string.format("\n%s\n%s\n%s", 
+        string.rep("─", 40),
+        code,
+        string.rep("─", 40)
+      )
+    end)
+    
+    -- Convert inline code
+    line = line:gsub("`([^`]+)`", "│%1│")
+    
+    table.insert(formatted, line)
+  end
+  
+  return formatted
 end
 
 return M
