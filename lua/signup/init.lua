@@ -208,14 +208,14 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
             end_idx = start_idx + #param.label - 1
           end
         elseif type(param.label) == "table" and #param.label == 2 then
-          start_idx = param.label[1]
+          start_idx = param.label[1] + 1 -- Convert to 1-based index
           end_idx = param.label[2]
         end
 
-        -- Apply highlights if we found the parameter
-        if start_idx then
+        -- Apply highlights if we found valid positions
+        if start_idx and end_idx and start_idx > 0 and end_idx > start_idx then
           -- Add main parameter highlight
-          api.nvim_buf_add_highlight(
+          pcall(api.nvim_buf_add_highlight,
             self.buf, 
             self._ns, 
             "LspSignatureActiveParameter",
@@ -225,7 +225,7 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
           )
 
           -- Add subtle background highlight to the entire signature
-          api.nvim_buf_add_highlight(
+          pcall(api.nvim_buf_add_highlight,
             self.buf,
             self._ns,
             "LspSignatureActiveLine",
@@ -239,9 +239,9 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
             local hint = type(param.documentation) == "table" 
               and param.documentation.value 
               or param.documentation
-            
-            -- Add virtual text hint
-            api.nvim_buf_set_extmark(self.buf, self._ns, line - 1, end_idx, {
+
+            -- Safely set extmark with bounds checking
+            pcall(api.nvim_buf_set_extmark, self.buf, self._ns, line - 1, math.max(0, end_idx), {
               virt_text = {
                 {" : ", "Comment"},
                 {hint, "LspSignatureParameterHint"}
