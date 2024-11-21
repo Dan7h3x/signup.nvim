@@ -33,7 +33,7 @@ function SignatureHelp:create_float_window(contents, signature)
   local col = cursor[2]
 
   local win_config = {
-    relative = "win",
+    relative = "cursor",
     win = 0,
     row = row > 0 and row - 1 or 0,
     col = col,
@@ -113,23 +113,23 @@ end
 
 function SignatureHelp:format_signature(signature)
   local contents = {}
-  
+
   -- Add signature
   table.insert(contents, signature.label)
-  
+
   -- Add parameter documentation if available
   if signature.activeParameter and signature.parameters then
     local param = signature.parameters[signature.activeParameter + 1]
     if param and param.documentation then
-      local doc = type(param.documentation) == "table" 
-        and param.documentation.value 
-        or param.documentation
-      
+      local doc = type(param.documentation) == "table"
+          and param.documentation.value
+          or param.documentation
+
       table.insert(contents, string.rep("─", 40))
       table.insert(contents, self.config.icons.parameter .. " " .. doc)
     end
   end
-  
+
   return contents
 end
 
@@ -148,39 +148,39 @@ local M = {}
 
 function M.setup(opts)
   Config.setup(opts)
-  
+
   local signature_help = SignatureHelp.new()
-  
+
   Highlight.setup_highlights(Config.options)
   Highlight.create_autocmds(Config.options)
-  
+
   -- Override default LSP signature handler
   vim.lsp.handlers["textDocument/signatureHelp"] = function(_, result, ctx)
     signature_help:display(result)
   end
-  
+
   -- Setup auto-open triggers
   vim.api.nvim_create_autocmd("LspAttach", {
     callback = function(args)
       local bufnr = args.buf
       local client = vim.lsp.get_client_by_id(args.data.client_id)
-      
+
       if client and client.server_capabilities.signatureHelpProvider then
         local trigger_chars = client.server_capabilities.signatureHelpProvider.triggerCharacters or {}
-        
+
         local check_trigger = Util.debounce(Config.options.auto_open.throttle, function()
           local char = Util.get_current_char(bufnr)
           if vim.tbl_contains(trigger_chars, char) then
             vim.lsp.buf.signature_help()
           end
         end)
-        
+
         -- Set up text change triggers
-        vim.api.nvim_create_autocmd({"TextChangedI", "TextChangedP"}, {
+        vim.api.nvim_create_autocmd({ "TextChangedI", "TextChangedP" }, {
           buffer = bufnr,
           callback = check_trigger,
         })
-        
+
         -- Set up keybinding
         vim.keymap.set("n", Config.options.toggle_key, vim.lsp.buf.signature_help, {
           buffer = bufnr,

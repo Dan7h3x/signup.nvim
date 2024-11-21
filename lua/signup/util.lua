@@ -5,7 +5,7 @@ local M = {}
 function M.debounce(ms, fn)
   local timer = vim.loop.new_timer()
   return function(...)
-    local args = {...}
+    local args = { ... }
     timer:start(ms, 0, function()
       timer:stop()
       vim.schedule(function()
@@ -47,4 +47,5 @@ function M.split_lines(text)
   return vim.split(text, "\n")
 end
 
-return M 
+return M
+
