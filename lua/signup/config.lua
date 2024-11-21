@@ -9,7 +9,7 @@ M.defaults = {
   toggle_key = "<C-k>", -- Key to toggle signature in normal mode
 
   -- Window options
-  border = "rounded",
+  border = "solid",
   winblend = 20,
   max_width = 50,
   max_height = 20,
