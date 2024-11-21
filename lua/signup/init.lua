@@ -29,6 +29,23 @@ function SignatureHelp.new()
       },
       border = "rounded",
       winblend = 20,
+      highlights = {
+        active_parameter = {
+          fg = "#89DCEB",      -- Parameter text color
+          bg = "#313244",      -- Parameter background
+          bold = true,         -- Make it bold
+          italic = false,      -- Optional italic
+          underline = false,   -- Optional underline
+        },
+        active_signature = {
+          fg = "#94E2D5",      -- Active signature color
+          bold = true,
+        },
+        parameter_hints = {
+          fg = "#BAC2DE",      -- Parameter hints color
+          italic = true,
+        }
+      },
     },
     _ns = vim.api.nvim_create_namespace('signature_help'),
     _highlight_cache = {},
@@ -175,25 +192,64 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
 
   api.nvim_buf_clear_namespace(self.buf, self._ns, 0, -1)
 
-  if not self._highlight_cache[self.buf] then
-    self._highlight_cache[self.buf] = {}
-  end
-
   for index, signature in ipairs(signatures) do
     local parameter = signature.activeParameter or active_parameter
-    if parameter and parameter >= 0 and parameter < #signature.parameters then
-      local label = signature.parameters[parameter + 1].label
-      if type(label) == "string" then
+    if parameter and parameter >= 0 and signature.parameters then
+      local param = signature.parameters[parameter + 1]
+      if param then
         local line = labels[index]
-        local line_text = api.nvim_buf_get_lines(self.buf, line - 1, line, false)[1]
-        local start_idx = line_text:find(vim.pesc(label))
-        if start_idx then
-          api.nvim_buf_add_highlight(self.buf, self._ns, "LspSignatureActiveParameter", 
-            line - 1, start_idx - 1, start_idx + #label - 1)
+        local start_idx, end_idx
+
+        -- Handle different parameter label types
+        if type(param.label) == "string" then
+          local line_text = api.nvim_buf_get_lines(self.buf, line - 1, line, false)[1]
+          start_idx = line_text:find(vim.pesc(param.label))
+          if start_idx then
+            end_idx = start_idx + #param.label - 1
+          end
+        elseif type(param.label) == "table" and #param.label == 2 then
+          start_idx = param.label[1]
+          end_idx = param.label[2]
         end
-      elseif type(label) == "table" then
-        api.nvim_buf_add_highlight(self.buf, self._ns, "LspSignatureActiveParameter", 
-          labels[index], unpack(label))
+
+        -- Apply highlights if we found the parameter
+        if start_idx then
+          -- Add main parameter highlight
+          api.nvim_buf_add_highlight(
+            self.buf, 
+            self._ns, 
+            "LspSignatureActiveParameter",
+            line - 1, 
+            start_idx - 1, 
+            end_idx
+          )
+
+          -- Add subtle background highlight to the entire signature
+          api.nvim_buf_add_highlight(
+            self.buf,
+            self._ns,
+            "LspSignatureActiveLine",
+            line - 1,
+            0,
+            -1
+          )
+
+          -- Add parameter type hint if available
+          if param.documentation then
+            local hint = type(param.documentation) == "table" 
+              and param.documentation.value 
+              or param.documentation
+            
+            -- Add virtual text hint
+            api.nvim_buf_set_extmark(self.buf, self._ns, line - 1, end_idx, {
+              virt_text = {
+                {" : ", "Comment"},
+                {hint, "LspSignatureParameterHint"}
+              },
+              virt_text_pos = "inline"
+            })
+          end
+        end
       end
     end
   end
@@ -378,6 +434,39 @@ end
 function M.setup(opts)
   opts = opts or {}
   local signature_help = SignatureHelp.new()
+  
+  -- Deep merge the highlight configurations
+  if opts.highlights then
+    signature_help.config.highlights = vim.tbl_deep_extend(
+      "force", 
+      signature_help.config.highlights, 
+      opts.highlights
+    )
+  end
+
+  -- Setup highlight groups
+  local function setup_highlights()
+    -- Main parameter highlight
+    vim.api.nvim_set_hl(0, "LspSignatureActiveParameter", signature_help.config.highlights.active_parameter)
+    
+    -- Active signature line
+    vim.api.nvim_set_hl(0, "LspSignatureActiveLine", {
+      bg = signature_help.config.highlights.active_parameter.bg,
+      blend = 30,  -- Make it somewhat transparent
+    })
+    
+    -- Parameter hint highlight
+    vim.api.nvim_set_hl(0, "LspSignatureParameterHint", signature_help.config.highlights.parameter_hints)
+  end
+
+  -- Set up initial highlights
+  setup_highlights()
+
+  -- Update highlights when colorscheme changes
+  vim.api.nvim_create_autocmd("ColorScheme", {
+    callback = setup_highlights
+  })
+
   signature_help.config = vim.tbl_deep_extend("force", signature_help.config, opts)
   signature_help:setup_autocmds()
 
