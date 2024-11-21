@@ -57,7 +57,7 @@ M.defaults = {
   },
   
   -- Display options
-  inline_hints = true,  -- Show parameter hints inline (in addition to bottom docs)
+  inline_hints = false,  -- Show parameter hints inline (in addition to bottom docs)
 }
 
 ---@type SignupConfig
