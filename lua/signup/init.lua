@@ -34,7 +34,6 @@ function SignatureHelp:create_float_window(contents, signature)
 
   local win_config = {
     relative = "cursor",
-    win = 0,
     row = row > 0 and row - 1 or 0,
     col = col,
     width = width,
