@@ -51,9 +51,9 @@ M.defaults = {
   -- Auto-open settings
   auto_open = {
     enabled = true,
-    trigger = true, -- Trigger on special characters
-    luasnip = true, -- Trigger on LuaSnip node enter
-    throttle = 100, -- Debounce time in ms
+    trigger_chars = { "(", "," },    -- Specific trigger characters
+    hide_on_completion = true,       -- Hide when nvim-cmp is visible
+    throttle = 50,                   -- Reduced throttle time for better responsiveness
   },
 
   -- Display options

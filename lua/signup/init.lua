@@ -155,6 +155,11 @@ function M.setup(opts)
 
   -- Override default LSP signature handler
   vim.lsp.handlers["textDocument/signatureHelp"] = function(_, result, ctx)
+    -- Check if nvim-cmp completion menu is visible
+    if Config.options.auto_open.hide_on_completion and vim.fn.pumvisible() == 1 then
+      signature_help:close()
+      return
+    end
     signature_help:display(result)
   end
 
@@ -165,20 +170,45 @@ function M.setup(opts)
       local client = vim.lsp.get_client_by_id(args.data.client_id)
 
       if client and client.server_capabilities.signatureHelpProvider then
-        local trigger_chars = client.server_capabilities.signatureHelpProvider.triggerCharacters or {}
+        local user_triggers = Config.options.auto_open.trigger_chars
+        local server_triggers = client.server_capabilities.signatureHelpProvider.triggerCharacters or {}
+        local trigger_chars = vim.tbl_extend("keep", user_triggers, server_triggers)
 
         local check_trigger = Util.debounce(Config.options.auto_open.throttle, function()
+          -- Don't trigger if nvim-cmp is visible
+          if Config.options.auto_open.hide_on_completion and vim.fn.pumvisible() == 1 then
+            signature_help:close()
+            return
+          end
+
           local char = Util.get_current_char(bufnr)
           if vim.tbl_contains(trigger_chars, char) then
             vim.lsp.buf.signature_help()
           end
         end)
 
-        -- Set up text change triggers
-        vim.api.nvim_create_autocmd({ "TextChangedI", "TextChangedP" }, {
+        -- Set up text change triggers with more specific events
+        vim.api.nvim_create_autocmd("InsertCharPre", {
           buffer = bufnr,
-          callback = check_trigger,
+          callback = function()
+            local char = vim.v.char
+            if vim.tbl_contains(trigger_chars, char) then
+              vim.schedule(function()
+                vim.lsp.buf.signature_help()
+              end)
+            end
+          end,
         })
+
+        -- Hide signature when completion menu appears
+        if Config.options.auto_open.hide_on_completion then
+          vim.api.nvim_create_autocmd("CompleteChanged", {
+            buffer = bufnr,
+            callback = function()
+              signature_help:close()
+            end,
+          })
+        end
 
         -- Set up keybinding
         vim.keymap.set("n", Config.options.toggle_key, vim.lsp.buf.signature_help, {
