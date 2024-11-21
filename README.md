@@ -32,6 +32,7 @@ Add the following to your `init.lua`:
 require("lazy").setup({
   {
     "Dan7h3x/signup.nvim",
+    branch = "main",
     config = function()
       require("signup").setup({
         -- Your configuration options here
@@ -64,23 +65,37 @@ EOF
 The plugin comes with a default configuration, but you can customize it according to your preferences. Here are the available options:
 
 ```lua
-require('signup').setup({
-  silent = false,
-  number = true,
-  icons = {
-    parameter = " ",
-    method = " ",
-    documentation = " ",
-  },
-  colors = {
-    parameter = "#86e1fc",
-    method = "#c099ff",
-    documentation = "#4fd6be",
-  },
-  border = "rounded",
-  winblend = 10,
-  override = true, -- Override default LSP handler for signatureHelp
-})
+require('signup').setup(
+  {
+    win = nil,
+    buf = nil,
+    timer = nil,
+    visible = false,
+    current_signatures = nil,
+    enabled = false,
+    normal_mode_active = false,
+    config = {
+      silent = false,
+      number = true,
+      icons = {
+        parameter = " ",
+        method = " ",
+        documentation = " ",
+      },
+      colors = {
+        parameter = "#86e1fc",
+        method = "#c099ff",
+        documentation = "#4fd6be",
+      },
+      active_parameter_colors = {
+        bg = "#86e1fc",
+        fg = "#1a1a1a",
+      },
+      border = "solid",
+      winblend = 10,
+    }
+  }
+)
 ```
 
 ### Options
