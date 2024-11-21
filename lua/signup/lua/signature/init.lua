@@ -33,7 +33,60 @@ function SignatureManager:handle_signature(result, ctx)
   local signature = result.signatures[result.activeSignature and result.activeSignature + 1 or 1]
   if not signature then return end
 
-  self.window:display(signature, result.activeParameter)
+  -- Dynamic parameter detection
+  local cursor_pos = vim.api.nvim_win_get_cursor(0)
+  local line = vim.api.nvim_get_current_line()
+  local current_param = self:detect_current_parameter(line, cursor_pos[2], signature)
+
+  self.window:display(signature, current_param or result.activeParameter)
+end
+
+function SignatureManager:detect_current_parameter(line, col, signature)
+  if not signature.parameters or #signature.parameters == 0 then
+    return nil
+  end
+
+  -- Get text from start of line to cursor
+  local text_before_cursor = line:sub(1, col)
+  
+  -- Find the last opening parenthesis before cursor
+  local last_open = text_before_cursor:match(".*%(")
+  if not last_open then return 0 end
+
+  -- Count commas to determine parameter position
+  local param_text = text_before_cursor:sub(#last_open + 1)
+  local param_count = 0
+  
+  local in_string = false
+  local string_char = nil
+  local depth = 0
+
+  for i = 1, #param_text do
+    local char = param_text:sub(i, i)
+    
+    -- Handle string literals
+    if char == '"' or char == "'" then
+      if not in_string then
+        in_string = true
+        string_char = char
+      elseif string_char == char then
+        in_string = false
+      end
+    end
+    
+    -- Handle nested parentheses
+    if not in_string then
+      if char == '(' then
+        depth = depth + 1
+      elseif char == ')' then
+        depth = depth - 1
+      elseif char == ',' and depth == 0 then
+        param_count = param_count + 1
+      end
+    end
+  end
+
+  return math.min(param_count, #signature.parameters - 1)
 end
 
 function SignatureManager:setup_buffer(bufnr, client)
