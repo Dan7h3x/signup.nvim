@@ -210,25 +210,30 @@ function M.setup(opts)
           
           -- Set up trigger events
           if Config.options.auto_open.trigger then
+            -- Create buffer-local command
             vim.api.nvim_buf_create_user_command(bufnr, "SignatureHelpToggle", function()
               vim.lsp.buf.signature_help()
             end, {})
             
+            -- Set up keymapping
             vim.keymap.set("n", Config.options.toggle_key, "<cmd>SignatureHelpToggle<CR>", {
               buffer = bufnr,
               desc = "Toggle signature help"
             })
             
+            -- Set up text change triggers
             vim.api.nvim_create_autocmd({"TextChangedI", "TextChangedP"}, {
               buffer = bufnr,
               callback = check_trigger,
             })
           end
           
+          -- Set up LuaSnip integration
           if Config.options.auto_open.luasnip then
+            local group = vim.api.nvim_create_augroup("SignupLuasnip" .. bufnr, { clear = true })
             vim.api.nvim_create_autocmd("User", {
+              group = group,
               pattern = "LuasnipInsertNodeEnter",
-              buffer = bufnr,
               callback = check_trigger,
             })
           end
