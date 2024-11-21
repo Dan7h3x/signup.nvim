@@ -112,10 +112,21 @@ function SignatureHelp:create_float_window(contents, signature)
   if signature and signature.activeParameter then
     local param = signature.parameters[signature.activeParameter + 1]
     if param and param.documentation then
+      -- Get parameter label
+      local param_label = ""
+      if type(param.label) == "string" then
+        param_label = param.label
+      elseif type(param.label) == "table" and #param.label == 2 then
+        -- Extract substring from signature label using start/end positions
+        param_label = signature.label:sub(param.label[1] + 1, param.label[2])
+      end
+
       local doc_contents = {
-        "Parameter: " .. param.label,
+        "Parameter: " .. param_label,
         "Documentation:",
-        param.documentation.value or param.documentation
+        type(param.documentation) == "table" and 
+          (param.documentation.value or "") or 
+          param.documentation
       }
       
       -- Create secondary float for parameter details
