@@ -386,7 +386,7 @@ function M.setup(opts)
     })
   end
   vim.api.nvim_set_hl(0, "LspSignatureActiveParameter",
-    { fg = opts.active_parameter_colors.fg, bg = opts.active_parameter_colors.bg })
+    { fg = opts.config.active_parameter_colors.fg, bg = opts.config.active_parameter_colors.bg })
   vim.cmd(string.format([[
         highlight default SignatureHelpMethod guifg=%s
         highlight default SignatureHelpParameter guifg=%s
