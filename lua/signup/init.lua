@@ -18,9 +18,9 @@ function SignatureHelp.new()
       silent = false,
       number = true,
       icons = {
-        parameter = " ",
-        method = " ",
-        documentation = " ",
+        parameter = " ",
+        method = " ",
+        documentation = " ",
       },
       colors = {
         parameter = "#86e1fc",
@@ -33,6 +33,13 @@ function SignatureHelp.new()
       },
       border = "solid",
       winblend = 10,
+      auto_close = true,
+      trigger_chars = { "(", "," },
+      max_height = 10,
+      max_width = 80,
+      floating_window_above_cur_line = true,
+      preview_parameters = true,
+      debounce_time = 30,
     }
   }, SignatureHelp)
 end
@@ -79,20 +86,28 @@ local function markdown_for_signature_list(signatures, config)
 end
 
 function SignatureHelp:create_float_window(contents)
-  local width = math.min(45, vim.o.columns)
-  local height = math.min(#contents, 10)
+  local max_width = math.min(self.config.max_width, vim.o.columns)
+  local max_height = math.min(self.config.max_height, #contents)
 
+  -- Calculate optimal position
   local cursor = api.nvim_win_get_cursor(0)
-  local row = cursor[1] - api.nvim_win_get_cursor(0)[1]
+  local cursor_line = cursor[1]
+  local screen_line = vim.fn.screenpos(0, cursor_line, 1).row
+
+  local row_offset = self.config.floating_window_above_cur_line and -max_height - 1 or 1
+  if screen_line + row_offset < 1 then
+    row_offset = 1  -- Show below if not enough space above
+  end
 
   local win_config = {
     relative = "cursor",
-    row = row + 1,
+    row = row_offset,
     col = 0,
-    width = width,
-    height = height,
+    width = max_width,
+    height = max_height,
     style = "minimal",
     border = self.config.border,
+    zindex = 50,  -- Ensure it's above most other floating windows
   }
 
   if self.win and api.nvim_win_is_valid(self.win) then
@@ -270,11 +285,12 @@ function SignatureHelp:trigger()
       return
     end
 
-    if result then
+    if result and result.signatures and #result.signatures > 0 then
       self:display(result)
     else
       self:hide()
-      if not self.config.silent then
+      -- Only notify if not silent and if there was actually no signature help
+      if not self.config.silent and result then
         vim.notify("No signature help available", vim.log.levels.INFO)
       end
     end
@@ -367,6 +383,8 @@ end
 function M.setup(opts)
   opts = opts or {}
   local signature_help = SignatureHelp.new()
+  
+  -- Properly merge configs
   signature_help.config = vim.tbl_deep_extend("force", signature_help.config, opts)
   signature_help:setup_autocmds()
 
@@ -375,24 +393,29 @@ function M.setup(opts)
     signature_help:toggle_normal_mode()
   end, { noremap = true, silent = true, desc = "Toggle signature help in normal mode" })
 
+  -- Setup highlighting
   if pcall(require, "nvim-treesitter") then
     require("nvim-treesitter").define_modules({
       signature_help_highlighting = {
         module_path = "signature_help.highlighting",
-        is_supported = function(lang)
-          return lang == "markdown"
-        end,
+        is_supported = function(lang) return lang == "markdown" end,
       },
     })
   end
-  vim.api.nvim_set_hl(0, "LspSignatureActiveParameter",
-    { fg = opts.config.active_parameter_colors.fg, bg = opts.config.active_parameter_colors.bg })
+
+  -- Fix: Use signature_help.config instead of opts.config
+  vim.api.nvim_set_hl(0, "LspSignatureActiveParameter", {
+    fg = signature_help.config.active_parameter_colors.fg,
+    bg = signature_help.config.active_parameter_colors.bg
+  })
+
+  -- Setup other highlights
+  local colors = signature_help.config.colors
   vim.cmd(string.format([[
-        highlight default SignatureHelpMethod guifg=%s
-        highlight default SignatureHelpParameter guifg=%s
-        highlight default SignatureHelpDocumentation guifg=%s
-    ]], signature_help.config.colors.method, signature_help.config.colors.parameter,
-    signature_help.config.colors.documentation))
+    highlight default SignatureHelpMethod guifg=%s
+    highlight default SignatureHelpParameter guifg=%s
+    highlight default SignatureHelpDocumentation guifg=%s
+  ]], colors.method, colors.parameter, colors.documentation))
 
   if opts.override then
     vim.lsp.handlers["textDocument/signatureHelp"] = function(_, result, context, config)
