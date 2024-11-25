@@ -493,6 +493,149 @@ function SignatureHelp:hide()
   end
 end
 
+---Setup autocommands for signature help
+function SignatureHelp:setup_autocmds()
+  local group = api.nvim_create_augroup("SignatureHelp", { clear = true })
+
+  -- Auto-close signature help when cursor moves
+  if self.config.auto_close then
+    api.nvim_create_autocmd("CursorMoved", {
+      group = group,
+      callback = function()
+        if self.visible and not self.config.dock_mode.enabled then
+          self:hide()
+        end
+      end,
+    })
+  end
+
+  -- Handle window resize for dock mode
+  if self.config.dock_mode.enabled then
+    api.nvim_create_autocmd("VimResized", {
+      group = group,
+      callback = function()
+        if self.visible then
+          self:refresh_dock_window()
+        end
+      end,
+    })
+  end
+
+  -- Cleanup on buffer unload
+  api.nvim_create_autocmd("BufUnload", {
+    group = group,
+    callback = function()
+      self:hide()
+    end,
+  })
+end
+
+---Refresh the dock window after resize
+function SignatureHelp:refresh_dock_window()
+  if not self.config.dock_mode.enabled or not self.visible then return end
+  
+  local win_height = vim.api.nvim_win_get_height(0)
+  local win_width = vim.api.nvim_win_get_width(0)
+  local dock_height = self.config.dock_mode.height
+  local padding = self.config.dock_mode.padding
+
+  local row = self.config.dock_mode.position == "bottom"
+    and win_height - dock_height - padding
+    or padding
+
+  if self.dock_win and api.nvim_win_is_valid(self.dock_win) then
+    api.nvim_win_set_config(self.dock_win, {
+      relative = "win",
+      win = 0,
+      width = win_width - (padding * 2),
+      height = dock_height,
+      row = row,
+      col = padding,
+    })
+  end
+end
+
+---Toggle signature help in normal mode
+function SignatureHelp:toggle_normal_mode()
+  self.normal_mode_active = not self.normal_mode_active
+  if self.normal_mode_active then
+    self:trigger()
+  else
+    self:hide()
+  end
+end
+
+---Trigger signature help request
+function SignatureHelp:trigger()
+  if not self.enabled then return end
+
+  local params = vim.lsp.util.make_position_params()
+  vim.lsp.buf_request(0, "textDocument/signatureHelp", params, function(err, result, _, _)
+    if err then
+      if not self.config.silent then
+        vim.notify("Error in LSP Signature Help: " .. vim.inspect(err), vim.log.levels.ERROR)
+      end
+      self:hide()
+      return
+    end
+
+    if result and result.signatures and #result.signatures > 0 then
+      self:display(result)
+    else
+      self:hide()
+      if not self.config.silent and result then
+        vim.notify("No signature help available", vim.log.levels.INFO)
+      end
+    end
+  end)
+end
+
+---Apply treesitter highlighting if available
+function SignatureHelp:apply_treesitter_highlighting()
+  if not self.buf or not api.nvim_buf_is_valid(self.buf) then return end
+  
+  -- Check if treesitter is available
+  local has_ts, ts = pcall(require, "nvim-treesitter.highlight")
+  if not has_ts then return end
+
+  -- Apply treesitter highlighting
+  ts.attach(self.buf, vim.bo.filetype)
+end
+
+---Highlight icons in the signature help window
+function SignatureHelp:highlight_icons()
+  if not self.buf or not api.nvim_buf_is_valid(self.buf) then return end
+
+  local icons = {
+    { self.config.icons.method, "SignatureHelpMethod" },
+    { self.config.icons.parameter, "SignatureHelpParameter" },
+    { self.config.icons.documentation, "SignatureHelpDocumentation" },
+  }
+
+  for _, icon_data in ipairs(icons) do
+    local icon, hl_group = unpack(icon_data)
+    local line_num = 0
+    
+    while line_num < api.nvim_buf_line_count(self.buf) do
+      local line = api.nvim_buf_get_lines(self.buf, line_num, line_num + 1, false)[1]
+      local start_col = line:find(vim.pesc(icon))
+      
+      if start_col then
+        api.nvim_buf_add_highlight(
+          self.buf,
+          -1,
+          hl_group,
+          line_num,
+          start_col - 1,
+          start_col - 1 + #icon
+        )
+      end
+      
+      line_num = line_num + 1
+    end
+  end
+end
+
 ---Setup function for the plugin
 ---@param opts table Configuration options
 function M.setup(opts)
