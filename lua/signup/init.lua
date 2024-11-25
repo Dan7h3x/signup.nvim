@@ -65,49 +65,82 @@ local function signature_index_comment(index)
 end
 
 function SignatureHelp:parse_signature_info(signature)
+  if not signature or type(signature) ~= "table" or not signature.label then
+    return {
+      name = "unknown",
+      full_signature = "",
+      documentation = "",
+      parameters = {}
+    }
+  end
+
   -- Extract function name and full signature
-  local function_name = signature.label:match("([^%(]+)%(")
+  local function_name = signature.label:match("([^%(]+)") or "unknown"
   local parameters = signature.parameters or {}
   
   -- Parse parameters
   local parsed_params = {}
   for i, param in ipairs(parameters) do
-    local param_info = {
-      label = param.label,
-      documentation = param.documentation and (
-        type(param.documentation) == "string" and param.documentation or
-        param.documentation.value
-      ),
-      -- Extract type information if available in the label
-      type = param.label:match(":%s*(.+)$"),
-    }
-    parsed_params[i] = param_info
+    if param and param.label then
+      local param_info = {
+        label = param.label,
+        documentation = nil,
+        type = nil
+      }
+
+      -- Handle documentation
+      if param.documentation then
+        param_info.documentation = type(param.documentation) == "string" 
+          and param.documentation 
+          or (param.documentation.value or "")
+      end
+
+      -- Try to extract type information if available
+      if type(param.label) == "string" then
+        param_info.type = param.label:match(":%s*(.+)$")
+      end
+
+      parsed_params[i] = param_info
+    end
   end
   
+  -- Handle documentation
+  local documentation = nil
+  if signature.documentation then
+    documentation = type(signature.documentation) == "string"
+      and signature.documentation
+      or (signature.documentation.value or "")
+  end
+
   return {
     name = function_name,
     full_signature = signature.label,
-    documentation = signature.documentation and (
-      type(signature.documentation) == "string" and signature.documentation or
-      signature.documentation.value
-    ),
+    documentation = documentation,
     parameters = parsed_params,
   }
 end
 
 local function markdown_for_signature_list(signatures, active_sig_idx, active_param_idx, config)
+  if not signatures or type(signatures) ~= "table" then
+    return {}, {}
+  end
+
   local lines, labels = {}, {}
-  local number = config.number and #signatures > 1
   local max_method_len = 0
+  local number = config.number and #signatures > 1
   
   -- First pass to calculate alignment
   if config.render_style.align_icons then
     for _, signature in ipairs(signatures) do
-      max_method_len = math.max(max_method_len, #signature.label)
+      if signature and signature.label then
+        max_method_len = math.max(max_method_len, #signature.label)
+      end
     end
   end
 
   for index, signature in ipairs(signatures) do
+    if not signature then goto continue end
+
     local parsed = SignatureHelp:parse_signature_info(signature)
     local is_active = index - 1 == active_sig_idx
     
@@ -121,23 +154,27 @@ local function markdown_for_signature_list(signatures, active_sig_idx, active_pa
     table.insert(lines, string.format("%s %s Method:", method_prefix, config.icons.method))
     
     -- Signature with syntax highlighting
-    table.insert(lines, string.format("```%s", vim.bo.filetype))
-    table.insert(lines, parsed.full_signature)
-    table.insert(lines, "```")
+    if parsed.full_signature and parsed.full_signature ~= "" then
+      table.insert(lines, string.format("```%s", vim.bo.filetype))
+      table.insert(lines, parsed.full_signature)
+      table.insert(lines, "```")
+    end
 
     -- Parameters section
-    if #parsed.parameters > 0 then
+    if parsed.parameters and #parsed.parameters > 0 then
       if config.render_style.separator then
         table.insert(lines, string.rep("─", 40))
       end
       table.insert(lines, string.format("%s Parameters:", config.icons.parameter))
       
       for param_idx, param in ipairs(parsed.parameters) do
+        if not param then goto continue_param end
+
         local is_active_param = is_active and param_idx - 1 == active_param_idx
         local param_prefix = is_active_param and "→" or " "
         
         -- Parameter name and type
-        local param_text = string.format("%s %s", param_prefix, param.label)
+        local param_text = string.format("%s %s", param_prefix, param.label or "")
         
         -- Parameter documentation if available
         if param.documentation then
@@ -151,6 +188,7 @@ local function markdown_for_signature_list(signatures, active_sig_idx, active_pa
         end
         
         table.insert(lines, "  " .. param_text)
+        ::continue_param::
       end
     end
 
@@ -169,6 +207,8 @@ local function markdown_for_signature_list(signatures, active_sig_idx, active_pa
     if index ~= #signatures and config.render_style.separator then
       table.insert(lines, string.rep("═", 40))
     end
+
+    ::continue::
   end
   
   return lines, labels
