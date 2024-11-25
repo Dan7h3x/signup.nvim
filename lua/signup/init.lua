@@ -24,14 +24,28 @@ local function debounce(fn, ms)
   local timer = nil
   return function(...)
     if timer then
-      fn.timer_stop(timer)
+      vim.fn.timer_stop(timer)
     end
     local args = {...}
-    timer = fn.timer_start(ms, function()
+    timer = vim.fn.timer_start(ms, function()
       timer = nil
       fn(unpack(args))
     end)
   end
+end
+
+-- Safe string concatenation helper
+local function safe_concat(...)
+  local result = {}
+  for i = 1, select("#", ...) do
+    local value = select(i, ...)
+    if type(value) == "table" then
+      table.insert(result, value.value or "")
+    else
+      table.insert(result, tostring(value))
+    end
+  end
+  return table.concat(result)
 end
 
 function SignatureHelp.new()
@@ -123,14 +137,17 @@ function SignatureHelp:trigger()
   lsp.buf_request(0, "textDocument/signatureHelp", params, function(err, result, _, _)
     if err then
       if not self.config.silent then
-        vim.notify("LSP Signature Help Error", vim.log.levels.ERROR)
+        vim.notify("LSP Signature Help Error: " .. vim.inspect(err), vim.log.levels.ERROR)
       end
       self:hide()
       return
     end
 
     if result and result.signatures and #result.signatures > 0 then
-      self:display(result)
+      -- Safely wrap in schedule to avoid race conditions
+      vim.schedule(function()
+        self:display(result)
+      end)
     else
       self:hide()
     end
@@ -178,8 +195,9 @@ function SignatureHelp:create_signature_content(signatures, active_sig_idx, acti
     local is_active = idx - 1 == active_sig_idx
     local prefix = is_active and "→ " or "  "
 
-    -- Method signature
-    table.insert(content, prefix .. self.config.icons.method .. " " .. signature.label)
+    -- Method signature - safely handle label
+    local method_label = type(signature.label) == "table" and signature.label.value or signature.label
+    table.insert(content, prefix .. self.config.icons.method .. " " .. tostring(method_label))
 
     -- Parameters
     if signature.parameters and #signature.parameters > 0 then
@@ -187,7 +205,8 @@ function SignatureHelp:create_signature_content(signatures, active_sig_idx, acti
         if not param then goto continue_param end
         
         local param_prefix = param_idx - 1 == active_param_idx and "→ " or "  "
-        table.insert(content, param_prefix .. self.config.icons.parameter .. " " .. param.label)
+        local param_label = type(param.label) == "table" and param.label.value or param.label
+        table.insert(content, param_prefix .. self.config.icons.parameter .. " " .. tostring(param_label))
         
         ::continue_param::
       end
@@ -195,9 +214,10 @@ function SignatureHelp:create_signature_content(signatures, active_sig_idx, acti
 
     -- Documentation
     if signature.documentation then
-      table.insert(content, "  " .. self.config.icons.documentation .. " " .. 
-        (type(signature.documentation) == "string" and signature.documentation or 
-         signature.documentation.value or ""))
+      local doc = type(signature.documentation) == "table" 
+        and signature.documentation.value 
+        or tostring(signature.documentation)
+      table.insert(content, "  " .. self.config.icons.documentation .. " " .. doc)
     end
 
     ::continue::
@@ -244,9 +264,9 @@ function SignatureHelp:get_window_config(content_height)
 
   -- Calculate position
   local cursor = api.nvim_win_get_cursor(0)
-  local screen_pos = fn.screenpos(0, cursor[1], cursor[2])
   local row_offset = self.config.floating_window_above_cur_line and -max_height - 1 or 1
 
+  -- Safe window configuration
   return {
     relative = "cursor",
     row = row_offset,
