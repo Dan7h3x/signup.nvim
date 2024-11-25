@@ -41,6 +41,17 @@ function SignatureHelp.new()
       floating_window_above_cur_line = true,
       preview_parameters = true,
       debounce_time = 30,
+      dock_mode = {
+        enabled = false,
+        position = "bottom", -- "bottom" | "top"
+        height = 3,          -- number of lines
+        padding = 1,         -- padding from edges
+      },
+      render_style = {
+        separator = true,   -- Show separators between sections
+        compact = false,    -- Compact mode removes empty lines
+        align_icons = true, -- Align icons in separate column
+      },
     }
   }, SignatureHelp)
 end
@@ -56,31 +67,66 @@ end
 local function markdown_for_signature_list(signatures, config)
   local lines, labels = {}, {}
   local number = config.number and #signatures > 1
+  local max_method_len = 0
+
+  -- First pass to calculate alignment
+  if config.render_style.align_icons then
+    for _, signature in ipairs(signatures) do
+      max_method_len = math.max(max_method_len, #signature.label)
+    end
+  end
+
   for index, signature in ipairs(signatures) do
+    if not config.render_style.compact then
+      table.insert(lines, "")
+    end
     table.insert(labels, #lines + 1)
 
     local suffix = number and (' ' .. signature_index_comment(index)) or ''
+    local padding = config.render_style.align_icons
+        and string.rep(" ", max_method_len - #signature.label)
+        or ""
 
+    -- Method signature with syntax highlighting
     table.insert(lines, string.format("```%s", vim.bo.filetype))
-    table.insert(lines, string.format("%s %s%s", config.icons.method, signature.label, suffix))
+    table.insert(lines, string.format("%s Method: %s%s%s",
+      config.icons.method,
+      signature.label,
+      padding,
+      suffix
+    ))
     table.insert(lines, "```")
 
-    -- if signature.parameters and #signature.parameters > 0 then
-    --   table.insert(lines, "")
-    --   table.insert(lines, string.format("%s Parameters:", config.icons.parameter))
-    --   for _, param in ipairs(signature.parameters) do
-    --     table.insert(lines, string.format("  • %s", param.label))
-    --   end
-    -- end
-
-    if signature.documentation then
-      table.insert(lines, "")
-      table.insert(lines, string.format("%s Documentation:", config.icons.documentation))
-      vim.list_extend(lines, vim.split(signature.documentation.value or signature.documentation, "\n"))
+    -- Parameters section
+    if signature.parameters and #signature.parameters > 0 then
+      if config.render_style.separator then
+        table.insert(lines, string.rep("─", 40))
+      end
+      table.insert(lines, string.format("%s Parameters:", config.icons.parameter))
+      for _, param in ipairs(signature.parameters) do
+        local param_doc = param.documentation and
+            string.format(" - %s", param.documentation.value or param.documentation) or ""
+        table.insert(lines, string.format("  • %s = %s", param.label, param_doc))
+      end
     end
 
-    if index ~= #signatures then
-      table.insert(lines, "---")
+    -- Documentation section
+    if signature.documentation then
+      if config.render_style.separator then
+        table.insert(lines, string.rep("─", 40))
+      end
+      table.insert(lines, string.format("%s Documentation:", config.icons.documentation))
+      local doc_lines = vim.split(
+        signature.documentation.value or signature.documentation,
+        "\n"
+      )
+      for _, line in ipairs(doc_lines) do
+        table.insert(lines, "  " .. line)
+      end
+    end
+
+    if index ~= #signatures and config.render_style.separator then
+      table.insert(lines, string.rep("═", 40))
     end
   end
   return lines, labels
@@ -97,7 +143,7 @@ function SignatureHelp:create_float_window(contents)
 
   local row_offset = self.config.floating_window_above_cur_line and -max_height - 1 or 1
   if screen_line + row_offset < 1 then
-    row_offset = 1  -- Show below if not enough space above
+    row_offset = 1 -- Show below if not enough space above
   end
 
   local win_config = {
@@ -108,7 +154,7 @@ function SignatureHelp:create_float_window(contents)
     height = max_height,
     style = "minimal",
     border = self.config.border,
-    zindex = 50,  -- Ensure it's above most other floating windows
+    zindex = 50, -- Ensure it's above most other floating windows
   }
 
   if self.win and api.nvim_win_is_valid(self.win) then
@@ -131,10 +177,12 @@ end
 
 function SignatureHelp:hide()
   if self.visible then
-    pcall(api.nvim_win_close, self.win, true)
-    pcall(api.nvim_buf_delete, self.buf, { force = true })
-    self.win = nil
-    self.buf = nil
+    if not self.config.dock_mode.enabled then
+      pcall(api.nvim_win_close, self.win, true)
+      pcall(api.nvim_buf_delete, self.buf, { force = true })
+      self.win = nil
+      self.buf = nil
+    end
     self.visible = false
     self.current_signatures = nil
   end
@@ -148,18 +196,18 @@ function SignatureHelp:find_parameter_range(signature_str, parameter_label)
 
   -- Escape special pattern characters in parameter_label
   local escaped_label = vim.pesc(parameter_label)
-  
+
   -- Look for the parameter with word boundaries
   local pattern = [[\b]] .. escaped_label .. [[\b]]
   local start_pos = signature_str:find(pattern)
-  
+
   if not start_pos then
     -- Fallback: try finding exact match if word boundary search fails
     start_pos = signature_str:find(escaped_label)
   end
-  
+
   if not start_pos then return nil, nil end
-  
+
   local end_pos = start_pos + #parameter_label - 1
   return start_pos, end_pos
 end
@@ -167,10 +215,10 @@ end
 function SignatureHelp:extract_default_value(param_info)
   -- Check if parameter has documentation that might contain default value
   if not param_info.documentation then return nil end
-  
-  local doc = type(param_info.documentation) == "string" 
-    and param_info.documentation 
-    or param_info.documentation.value
+
+  local doc = type(param_info.documentation) == "string"
+      and param_info.documentation
+      or param_info.documentation.value
 
   -- Look for common default value patterns
   local patterns = {
@@ -198,31 +246,31 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
     if parameter and parameter >= 0 and signature.parameters and parameter < #signature.parameters then
       local param_info = signature.parameters[parameter + 1]
       local label = param_info.label
-      
+
       -- Find the parameter range in the signature
       local start_pos, end_pos = self:find_parameter_range(signature.label, label)
-      
+
       if start_pos and end_pos then
         -- Add active parameter highlight
         api.nvim_buf_add_highlight(
-          self.buf, 
-          -1, 
-          "LspSignatureActiveParameter", 
-          labels[index], 
+          self.buf,
+          -1,
+          "LspSignatureActiveParameter",
+          labels[index],
           start_pos - 1,
           end_pos - 1
         )
-        
+
         -- Extract and display default value if available
         local default_value = self:extract_default_value(param_info)
         if default_value then
           local default_text = string.format(" (default: %s)", default_value)
           local line = api.nvim_buf_get_lines(self.buf, labels[index], labels[index] + 1, false)[1]
           local new_line = line .. default_text
-          
+
           -- Update the line with default value
-          api.nvim_buf_set_lines(self.buf, labels[index], labels[index] + 1, false, {new_line})
-          
+          api.nvim_buf_set_lines(self.buf, labels[index], labels[index] + 1, false, { new_line })
+
           -- Highlight the default value
           local default_start = #line
           local default_end = #new_line
@@ -258,11 +306,11 @@ function SignatureHelp:highlight_icons()
       local start_col = line:find(vim.pesc(icon))
       if start_col then
         api.nvim_buf_add_highlight(
-          self.buf, 
-          -1, 
-          hl_group, 
-          line_num, 
-          start_col - 1, 
+          self.buf,
+          -1,
+          hl_group,
+          line_num,
+          start_col - 1,
           start_col - 1 + #icon
         )
       end
@@ -277,19 +325,29 @@ function SignatureHelp:display(result)
     return
   end
 
-  local markdown, labels = markdown_for_signature_list(result.signatures, self.config)
-
+  -- Prevent duplicate displays
   if vim.deep_equal(result.signatures, self.current_signatures) then
     return
   end
 
+  local markdown, labels = markdown_for_signature_list(result.signatures, self.config)
   self.current_signatures = result.signatures
 
   if #markdown > 0 then
-    self:create_float_window(markdown)
-    api.nvim_buf_set_option(self.buf, "filetype", "markdown")
-    self:set_active_parameter_highlights(result.activeParameter, result.signatures, labels)
-    self:apply_treesitter_highlighting()
+    if self.config.dock_mode.enabled then
+      local win, buf = self:create_dock_window()
+      api.nvim_buf_set_option(buf, "modifiable", true)
+      api.nvim_buf_set_lines(buf, 0, -1, false, markdown)
+      api.nvim_buf_set_option(buf, "modifiable", false)
+      api.nvim_buf_set_option(buf, "filetype", "markdown")
+      self:set_active_parameter_highlights(result.activeParameter, result.signatures, labels)
+      self:apply_treesitter_highlighting()
+    else
+      self:create_float_window(markdown)
+      api.nvim_buf_set_option(self.buf, "filetype", "markdown")
+      self:set_active_parameter_highlights(result.activeParameter, result.signatures, labels)
+      self:apply_treesitter_highlighting()
+    end
   else
     self:hide()
   end
@@ -411,10 +469,51 @@ function SignatureHelp:setup_autocmds()
   })
 end
 
+function SignatureHelp:create_dock_window()
+  if not self.dock_win or not api.nvim_win_is_valid(self.dock_win) then
+    -- Create dock buffer if needed
+    if not self.dock_buf or not api.nvim_buf_is_valid(self.dock_buf) then
+      self.dock_buf = api.nvim_create_buf(false, true)
+      api.nvim_buf_set_option(self.dock_buf, "buftype", "nofile")
+      api.nvim_buf_set_option(self.dock_buf, "bufhidden", "hide")
+    end
+
+    -- Calculate dock position
+    local win_height = vim.api.nvim_win_get_height(0)
+    local win_width = vim.api.nvim_win_get_width(0)
+    local dock_height = self.config.dock_mode.height
+    local padding = self.config.dock_mode.padding
+
+    local row = self.config.dock_mode.position == "bottom"
+        and win_height - dock_height - padding
+        or padding
+
+    -- Create dock window
+    self.dock_win = api.nvim_open_win(self.dock_buf, false, {
+      relative = "win",
+      win = 0,
+      width = win_width - (padding * 2),
+      height = dock_height,
+      row = row,
+      col = padding,
+      style = "minimal",
+      border = self.config.border,
+      zindex = 45, -- Below floating windows but above normal content
+    })
+
+    -- Set window options
+    api.nvim_win_set_option(self.dock_win, "wrap", true)
+    api.nvim_win_set_option(self.dock_win, "winblend", self.config.winblend)
+    api.nvim_win_set_option(self.dock_win, "foldenable", false)
+  end
+
+  return self.dock_win, self.dock_buf
+end
+
 function M.setup(opts)
   opts = opts or {}
   local signature_help = SignatureHelp.new()
-  
+
   -- Properly merge configs
   signature_help.config = vim.tbl_deep_extend("force", signature_help.config, opts)
   signature_help:setup_autocmds()
