@@ -10,9 +10,9 @@ This Neovim plugin provides a signature help feature for LSP (Language Server Pr
 
 # ScreenShots (WIP)
 
-![Screenshot1](https://github.com/user-attachments/assets/973d739a-3c01-4061-8888-29818d986fe8)
-![Screenshot2](https://github.com/user-attachments/assets/97f3fe5b-3656-456d-8df2-4cb3ffd798ad)
-![Screenshot3](https://github.com/user-attachments/assets/39595367-4f5c-4a3b-bf4e-fca0c2a24903)
+![Screenshot 1](https://github.com/user-attachments/assets/1ba206b1-cde8-41f4-9abd-f8501c6b16e1)
+![Screenshot 2](https://github.com/user-attachments/assets/aba63fe7-a302-4c9d-9f4a-ce28c9c35c03)
+![Screenshot 3](https://github.com/user-attachments/assets/986f0bcb-aecf-4483-8210-83b93cfd72d2)
 
 ## Features
 
@@ -32,6 +32,7 @@ Add the following to your `init.lua`:
 require("lazy").setup({
   {
     "Dan7h3x/signup.nvim",
+    branch = "main",
     config = function()
       require("signup").setup({
         -- Your configuration options here
@@ -64,23 +65,37 @@ EOF
 The plugin comes with a default configuration, but you can customize it according to your preferences. Here are the available options:
 
 ```lua
-require('signup').setup({
-  silent = false,
-  number = true,
-  icons = {
-    parameter = " ",
-    method = " ",
-    documentation = " ",
-  },
-  colors = {
-    parameter = "#86e1fc",
-    method = "#c099ff",
-    documentation = "#4fd6be",
-  },
-  border = "rounded",
-  winblend = 10,
-  override = true, -- Override default LSP handler for signatureHelp
-})
+require('signup').setup(
+  {
+    win = nil,
+    buf = nil,
+    timer = nil,
+    visible = false,
+    current_signatures = nil,
+    enabled = false,
+    normal_mode_active = false,
+    config = {
+      silent = false,
+      number = true,
+      icons = {
+        parameter = " ",
+        method = " ",
+        documentation = " ",
+      },
+      colors = {
+        parameter = "#86e1fc",
+        method = "#c099ff",
+        documentation = "#4fd6be",
+      },
+      active_parameter_colors = {
+        bg = "#86e1fc",
+        fg = "#1a1a1a",
+      },
+      border = "solid",
+      winblend = 10,
+    }
+  }
+)
 ```
 
 ### Options
@@ -159,64 +174,5 @@ Contributions are welcome! Please feel free to submit a pull request or open an 
 ## License
 
 This plugin is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
-
----
-
-## Good Color Schemes
-
-To make your signature help window look even better, you can use the following color schemes:
-
-### Gruvbox
-
-```lua
-vim.cmd([[
-  colorscheme gruvbox
-  highlight NormalFloat guibg=#3c3836 guifg=#ebdbb2
-  highlight FloatBorder guifg=#8ec07c
-  highlight LspSignatureActiveParameter guifg=#fabd2f guibg=#3c3836 gui=bold
-  highlight SignatureHelpMethod guifg=#83a598
-  highlight SignatureHelpParameter guifg=#b8bb26
-  highlight SignatureHelpDocumentation guifg=#d3869b
-  highlight NotificationInfo guifg=#8ec07c guibg=#3c3836
-  highlight NotificationWarn guifg=#fabd2f guibg=#3c3836
-  highlight NotificationError guifg=#fb4934 guibg=#3c3836
-]])
-```
-
-### Nord
-
-```lua
-vim.cmd([[
-  colorscheme nord
-  highlight NormalFloat guibg=#3b4252 guifg=#e5e9f0
-  highlight FloatBorder guifg=#81a1c1
-  highlight LspSignatureActiveParameter guifg=#88c0d0 guibg=#3b4252 gui=bold
-  highlight SignatureHelpMethod guifg=#81a1c1
-  highlight SignatureHelpParameter guifg=#a3be8c
-  highlight SignatureHelpDocumentation guifg=#b48ead
-  highlight NotificationInfo guifg=#81a1c1 guibg=#3b4252
-  highlight NotificationWarn guifg=#ebcb8b guibg=#3b4252
-  highlight NotificationError guifg=#bf616a guibg=#3b4252
-]])
-```
-
-### OneDark
-
-```lua
-vim.cmd([[
-  colorscheme onedark
-  highlight NormalFloat guibg=#282c34 guifg=#abb2bf
-  highlight FloatBorder guifg=#61afef
-  highlight LspSignatureActiveParameter guifg=#e06c75 guibg=#282c34 gui=bold
-  highlight SignatureHelpMethod guifg=#61afef
-  highlight SignatureHelpParameter guifg=#98c379
-  highlight SignatureHelpDocumentation guifg=#c678dd
-  highlight NotificationInfo guifg=#61afef guibg=#282c34
-  highlight NotificationWarn guifg=#e5c07b guibg=#282c34
-  highlight NotificationError guifg=#e06c75 guibg=#282c34
-]])
-```
-
-Feel free to customize these color schemes to match your personal preferences!
 
 ---
