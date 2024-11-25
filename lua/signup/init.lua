@@ -23,7 +23,7 @@ function SignatureHelp.new()
     timer = nil,
     visible = false,
     current_signatures = nil,
-    enabled = false,
+    enabled = true,
     normal_mode_active = false,
     config = {
       silent = false,
