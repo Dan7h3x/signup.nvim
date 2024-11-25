@@ -48,6 +48,16 @@ local function safe_concat(...)
   return table.concat(result)
 end
 
+-- Add this helper function at the top with other helpers
+local function split_lines(str)
+  if type(str) ~= "string" then return {} end
+  local lines = {}
+  for line in str:gmatch("[^\r\n]+") do
+    table.insert(lines, line)
+  end
+  return lines
+end
+
 function SignatureHelp.new()
   local self = setmetatable({
     win = nil,
@@ -206,7 +216,20 @@ function SignatureHelp:create_signature_content(signatures, active_sig_idx, acti
         
         local param_prefix = param_idx - 1 == active_param_idx and "→ " or "  "
         local param_label = type(param.label) == "table" and param.label.value or param.label
-        table.insert(content, param_prefix .. self.config.icons.parameter .. " " .. tostring(param_label))
+        
+        -- Split parameter documentation into lines if it exists
+        if param.documentation then
+          local doc = type(param.documentation) == "table" 
+            and param.documentation.value 
+            or tostring(param.documentation)
+          
+          table.insert(content, param_prefix .. self.config.icons.parameter .. " " .. tostring(param_label))
+          for _, line in ipairs(split_lines(doc)) do
+            table.insert(content, "    " .. line)
+          end
+        else
+          table.insert(content, param_prefix .. self.config.icons.parameter .. " " .. tostring(param_label))
+        end
         
         ::continue_param::
       end
@@ -217,7 +240,11 @@ function SignatureHelp:create_signature_content(signatures, active_sig_idx, acti
       local doc = type(signature.documentation) == "table" 
         and signature.documentation.value 
         or tostring(signature.documentation)
-      table.insert(content, "  " .. self.config.icons.documentation .. " " .. doc)
+      
+      table.insert(content, "  " .. self.config.icons.documentation .. " Documentation:")
+      for _, line in ipairs(split_lines(doc)) do
+        table.insert(content, "    " .. line)
+      end
     end
 
     ::continue::
@@ -234,11 +261,16 @@ function SignatureHelp:update_window(content, signatures, active_param_idx)
   if not bufnr or not api.nvim_buf_is_valid(bufnr) then
     bufnr = api.nvim_create_buf(false, true)
     self.buf = bufnr
+    
+    -- Set buffer options
+    api.nvim_buf_set_option(bufnr, "buftype", "nofile")
+    api.nvim_buf_set_option(bufnr, "bufhidden", "wipe")
+    api.nvim_buf_set_option(bufnr, "swapfile", false)
   end
 
-  -- Update content
+  -- Safely update content
   api.nvim_buf_set_option(bufnr, "modifiable", true)
-  api.nvim_buf_set_lines(bufnr, 0, -1, false, content)
+  pcall(api.nvim_buf_set_lines, bufnr, 0, -1, false, content)
   api.nvim_buf_set_option(bufnr, "modifiable", false)
 
   -- Create or update window
@@ -251,6 +283,9 @@ function SignatureHelp:update_window(content, signatures, active_param_idx)
     api.nvim_win_set_option(winnr, "wrap", true)
     api.nvim_win_set_option(winnr, "winblend", self.config.winblend)
     api.nvim_win_set_option(winnr, "foldenable", false)
+    api.nvim_win_set_option(winnr, "signcolumn", "no")
+    api.nvim_win_set_option(winnr, "number", false)
+    api.nvim_win_set_option(winnr, "relativenumber", false)
   end
 
   -- Apply highlights
@@ -291,6 +326,35 @@ function SignatureHelp:hide()
     end
     self.visible = false
     self.current_signatures = nil
+  end
+end
+
+function SignatureHelp:apply_highlights(signatures, active_param_idx)
+  if not self.buf or not api.nvim_buf_is_valid(self.buf) then return end
+
+  -- Clear existing highlights
+  api.nvim_buf_clear_namespace(self.buf, -1, 0, -1)
+
+  -- Apply icon highlights
+  local lines = api.nvim_buf_get_lines(self.buf, 0, -1, false)
+  for i, line in ipairs(lines) do
+    -- Method icon highlight
+    local method_start = line:find(vim.pesc(self.config.icons.method))
+    if method_start then
+      api.nvim_buf_add_highlight(self.buf, -1, "SignatureHelpMethod", i-1, method_start-1, method_start-1 + #self.config.icons.method)
+    end
+
+    -- Parameter icon highlight
+    local param_start = line:find(vim.pesc(self.config.icons.parameter))
+    if param_start then
+      api.nvim_buf_add_highlight(self.buf, -1, "SignatureHelpParameter", i-1, param_start-1, param_start-1 + #self.config.icons.parameter)
+    end
+
+    -- Documentation icon highlight
+    local doc_start = line:find(vim.pesc(self.config.icons.documentation))
+    if doc_start then
+      api.nvim_buf_add_highlight(self.buf, -1, "SignatureHelpDocumentation", i-1, doc_start-1, doc_start-1 + #self.config.icons.documentation)
+    end
   end
 end
 
