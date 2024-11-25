@@ -29,7 +29,7 @@ function SignatureHelp.new()
       silent = false,
       number = true,
       icons = {
-        parameter = "",
+        parameter = "T",
         method = "󰡱",
         documentation = "󱪙",
       },
@@ -48,7 +48,7 @@ function SignatureHelp.new()
       auto_close = true,
       trigger_chars = { "(", "," },
       max_height = 10,
-      max_width = 80,
+      max_width = 40,
       floating_window_above_cur_line = true,
       preview_parameters = true,
       debounce_time = 30,
