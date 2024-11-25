@@ -317,21 +317,40 @@ function SignatureHelp:set_active_parameter_highlights(active_param_idx, signatu
     
     if parameter and parameter >= 0 and parsed.parameters and parameter < #parsed.parameters then
       local param_info = parsed.parameters[parameter + 1]
-      if not param_info then goto continue end
+      if not param_info or not param_info.label then goto continue end
 
-      -- Find parameter range in signature
-      local start_pos, end_pos = self:find_parameter_range(signature.label, param_info)
-      
-      if start_pos and end_pos then
-        -- Add active parameter highlight
-        api.nvim_buf_add_highlight(
-          self.buf,
-          -1,
-          "LspSignatureActiveParameter",
-          labels[index] + 2, -- Account for method header and code block start
-          start_pos - 1,
-          end_pos
-        )
+      -- Extract parameter name without type annotation
+      local param_name = type(param_info.label) == "string" 
+        and param_info.label:match("^([^:]+)") 
+        or param_info.label
+
+      if not param_name then goto continue end
+
+      -- Find all occurrences of the parameter in the signature
+      local signature_line = signature.label
+      local start_idx = 1
+      while true do
+        local start_pos = signature_line:find(vim.pesc(param_name), start_idx, true)
+        if not start_pos then break end
+        
+        local end_pos = start_pos + #param_name - 1
+        local prev_char = start_pos > 1 and signature_line:sub(start_pos - 1, start_pos - 1) or " "
+        local next_char = signature_line:sub(end_pos + 1, end_pos + 1)
+        
+        -- Verify it's a whole word (parameter)
+        if (prev_char:match("[^%w_]") or prev_char == "") and
+           (next_char:match("[^%w_]") or next_char == "") then
+          -- Add highlight for this occurrence
+          api.nvim_buf_add_highlight(
+            self.buf,
+            -1,
+            "LspSignatureActiveParameter",
+            labels[index] + 2, -- Account for method header and code block start
+            start_pos - 1,
+            end_pos
+          )
+        end
+        start_idx = end_pos + 1
       end
     end
 
@@ -467,13 +486,23 @@ function SignatureHelp:display(result)
       api.nvim_buf_set_lines(buf, 0, -1, false, markdown)
       api.nvim_buf_set_option(buf, "modifiable", false)
       api.nvim_buf_set_option(buf, "filetype", "markdown")
-      self:set_active_parameter_highlights(active_param_idx, result.signatures, labels)
-      self:apply_treesitter_highlighting()
+      
+      -- Apply highlights after setting content
+      vim.schedule(function()
+        self:set_active_parameter_highlights(active_param_idx, result.signatures, labels)
+        self:apply_treesitter_highlighting()
+      end)
     else
       self:create_float_window(markdown)
-      self:set_active_parameter_highlights(active_param_idx, result.signatures, labels)
-      self:apply_treesitter_highlighting()
+      
+      -- Apply highlights after setting content
+      vim.schedule(function()
+        self:set_active_parameter_highlights(active_param_idx, result.signatures, labels)
+        self:apply_treesitter_highlighting()
+      end)
     end
+    
+    self.visible = true
   else
     self:hide()
   end
