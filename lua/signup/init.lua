@@ -18,14 +18,15 @@ function SignatureHelp.new()
       silent = false,
       number = true,
       icons = {
-        parameter = " ",
-        method = " ",
-        documentation = " ",
+        parameter = "",
+        method = "󰡱",
+        documentation = "󱪙",
       },
       colors = {
         parameter = "#86e1fc",
         method = "#c099ff",
         documentation = "#4fd6be",
+        default_value = "#888888",
       },
       active_parameter_colors = {
         bg = "#86e1fc",
@@ -36,7 +37,7 @@ function SignatureHelp.new()
       auto_close = true,
       trigger_chars = { "(", "," },
       max_height = 10,
-      max_width = 80,
+      max_width = 40,
       floating_window_above_cur_line = true,
       preview_parameters = true,
       debounce_time = 30,
@@ -139,71 +140,110 @@ function SignatureHelp:hide()
   end
 end
 
--- function SignatureHelp:set_active_parameter_highlights(active_parameter, signatures, labels)
---   if not self.buf or not api.nvim_buf_is_valid(self.buf) then return end
---
---   api.nvim_buf_clear_namespace(self.buf, -1, 0, -1)
---
---   for index, signature in ipairs(signatures) do
---     local parameter = signature.activeParameter or active_parameter
---     if parameter and parameter >= 0 and parameter < #signature.parameters then
---       local label = signature.parameters[parameter + 1].label
---       if type(label) == "string" then
---         -- vim.fn.matchadd("LspSignatureActiveParameter", "\\<" .. label .. "\\>")
---         vim.fn.matchadd("LspSignatureActiveParameter", "\\V\\<" .. vim.fn.escape(label, '\\') .. "\\>")
---       elseif type(label) == "table" then
---         -- api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index], unpack(label))
---         assert(self.buf and labels[index] and label[1] and label[2], "Invalid arguments")
---         api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index], unpack(label))
---       end
---     end
---   end
---
---   -- Add icon highlights
---   local icon_highlights = {
---     { self.config.icons.method,        "SignatureHelpMethod" },
---     { self.config.icons.parameter,     "SignatureHelpParameter" },
---     { self.config.icons.documentation, "SignatureHelpDocumentation" },
---   }
---
---   for _, icon_hl in ipairs(icon_highlights) do
---     local icon, hl_group = unpack(icon_hl)
---     local line_num = 0
---     while line_num < api.nvim_buf_line_count(self.buf) do
---       local line = api.nvim_buf_get_lines(self.buf, line_num, line_num + 1, false)[1]
---       local start_col = line:find(vim.pesc(icon))
---       if start_col then
---         api.nvim_buf_add_highlight(self.buf, -1, hl_group, line_num, start_col + 1, start_col + #icon + 1)
---       end
---       line_num = line_num + 1
---     end
---   end
--- end
+function SignatureHelp:find_parameter_range(signature_str, parameter_label)
+  -- Handle both string and table parameter labels
+  if type(parameter_label) == "table" then
+    return parameter_label[1], parameter_label[2]
+  end
+
+  -- Escape special pattern characters in parameter_label
+  local escaped_label = vim.pesc(parameter_label)
+  
+  -- Look for the parameter with word boundaries
+  local pattern = [[\b]] .. escaped_label .. [[\b]]
+  local start_pos = signature_str:find(pattern)
+  
+  if not start_pos then
+    -- Fallback: try finding exact match if word boundary search fails
+    start_pos = signature_str:find(escaped_label)
+  end
+  
+  if not start_pos then return nil, nil end
+  
+  local end_pos = start_pos + #parameter_label - 1
+  return start_pos, end_pos
+end
+
+function SignatureHelp:extract_default_value(param_info)
+  -- Check if parameter has documentation that might contain default value
+  if not param_info.documentation then return nil end
+  
+  local doc = type(param_info.documentation) == "string" 
+    and param_info.documentation 
+    or param_info.documentation.value
+
+  -- Look for common default value patterns
+  local patterns = {
+    "default:%s*([^%s]+)",
+    "defaults%s+to%s+([^%s]+)",
+    "%(default:%s*([^%)]+)%)",
+  }
+
+  for _, pattern in ipairs(patterns) do
+    local default = doc:match(pattern)
+    if default then return default end
+  end
+
+  return nil
+end
+
 function SignatureHelp:set_active_parameter_highlights(active_parameter, signatures, labels)
   if not self.buf or not api.nvim_buf_is_valid(self.buf) then return end
 
+  -- Clear existing highlights
   api.nvim_buf_clear_namespace(self.buf, -1, 0, -1)
 
   for index, signature in ipairs(signatures) do
     local parameter = signature.activeParameter or active_parameter
-    if parameter and parameter >= 0 and parameter < #signature.parameters then
-      local label = signature.parameters[parameter + 1].label
-      if type(label) == "string" then
-        -- Parse the signature string to find the exact range of the active parameter
-        local signature_str = signature.label
-        local start_pos, end_pos = self:find_parameter_range(signature_str, label)
-        if start_pos and end_pos then
-          api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index], start_pos - 1,
-            end_pos - 1)
+    if parameter and parameter >= 0 and signature.parameters and parameter < #signature.parameters then
+      local param_info = signature.parameters[parameter + 1]
+      local label = param_info.label
+      
+      -- Find the parameter range in the signature
+      local start_pos, end_pos = self:find_parameter_range(signature.label, label)
+      
+      if start_pos and end_pos then
+        -- Add active parameter highlight
+        api.nvim_buf_add_highlight(
+          self.buf, 
+          -1, 
+          "LspSignatureActiveParameter", 
+          labels[index], 
+          start_pos - 1,
+          end_pos - 1
+        )
+        
+        -- Extract and display default value if available
+        local default_value = self:extract_default_value(param_info)
+        if default_value then
+          local default_text = string.format(" (default: %s)", default_value)
+          local line = api.nvim_buf_get_lines(self.buf, labels[index], labels[index] + 1, false)[1]
+          local new_line = line .. default_text
+          
+          -- Update the line with default value
+          api.nvim_buf_set_lines(self.buf, labels[index], labels[index] + 1, false, {new_line})
+          
+          -- Highlight the default value
+          local default_start = #line
+          local default_end = #new_line
+          api.nvim_buf_add_highlight(
+            self.buf,
+            -1,
+            "SignatureHelpDefaultValue",
+            labels[index],
+            default_start,
+            default_end
+          )
         end
-      elseif type(label) == "table" then
-        local start_pos, end_pos = unpack(label)
-        api.nvim_buf_add_highlight(self.buf, -1, "LspSignatureActiveParameter", labels[index], start_pos + 5, end_pos + 5)
       end
     end
   end
 
   -- Add icon highlights
+  self:highlight_icons()
+end
+
+function SignatureHelp:highlight_icons()
   local icon_highlights = {
     { self.config.icons.method,        "SignatureHelpMethod" },
     { self.config.icons.parameter,     "SignatureHelpParameter" },
@@ -217,27 +257,18 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
       local line = api.nvim_buf_get_lines(self.buf, line_num, line_num + 1, false)[1]
       local start_col = line:find(vim.pesc(icon))
       if start_col then
-        api.nvim_buf_add_highlight(self.buf, -1, hl_group, line_num, start_col, start_col + #icon)
+        api.nvim_buf_add_highlight(
+          self.buf, 
+          -1, 
+          hl_group, 
+          line_num, 
+          start_col - 1, 
+          start_col - 1 + #icon
+        )
       end
       line_num = line_num + 1
     end
   end
-end
-
-function SignatureHelp:find_parameter_range(signature_str, parameter_label)
-  local start_pos = signature_str:find(parameter_label)
-  if not start_pos then return nil, nil end
-
-  local end_pos = start_pos + #parameter_label - 1
-
-  -- Ensure the parameter label is not part of a larger word
-  local before_char = signature_str:sub(start_pos - 1, start_pos - 1)
-  local after_char = signature_str:sub(end_pos + 1, end_pos + 1)
-  if (start_pos > 1 and not before_char:match("%s")) or (end_pos < #signature_str and not after_char:match("%s")) then
-    return nil, nil
-  end
-
-  return start_pos - 1, end_pos
 end
 
 function SignatureHelp:display(result)
@@ -416,6 +447,12 @@ function M.setup(opts)
     highlight default SignatureHelpParameter guifg=%s
     highlight default SignatureHelpDocumentation guifg=%s
   ]], colors.method, colors.parameter, colors.documentation))
+
+  -- Setup default value highlight
+  vim.api.nvim_set_hl(0, "SignatureHelpDefaultValue", {
+    fg = signature_help.config.colors.default_value,
+    italic = true
+  })
 
   if opts.override then
     vim.lsp.handlers["textDocument/signatureHelp"] = function(_, result, context, config)
