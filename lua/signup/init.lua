@@ -127,9 +127,17 @@ function SignatureHelper.new(config)
     win = nil,
     buf = nil,
     timer = nil,
+    visible = false,
     config = vim.tbl_deep_extend("force", DEFAULT_CONFIG, config or {}),
     current_sig = nil,
   }, SignatureHelper)
+  
+  -- Ensure auto_close config exists
+  self.config.auto_close = vim.tbl_deep_extend("force", {
+    normal_mode = true,
+    insert_mode = false,
+    cursor_moved_delay = 100,
+  }, self.config.auto_close or {})
   
   self:setup_highlights()
   return self
@@ -385,6 +393,98 @@ function SignatureHelper:trigger()
   end)
 end
 
+-- Add these methods to the SignatureHelper class
+function SignatureHelper:setup_auto_close()
+  if not self.config.auto_close then return end
+  
+  local group = api.nvim_create_augroup("SignatureHelpAutoClose", { clear = true })
+  
+  -- Auto-close in normal mode
+  api.nvim_create_autocmd("CursorMoved", {
+    group = group,
+    callback = function()
+      if not self.visible then return end
+      
+      if self.timer then
+        vim.fn.timer_stop(self.timer)
+      end
+      
+      self.timer = vim.fn.timer_start(
+        self.config.auto_close.cursor_moved_delay or 100,
+        function()
+          self:hide()
+        end
+      )
+    end,
+  })
+  
+  -- Auto-close in insert mode if configured
+  if self.config.auto_close.insert_mode then
+    api.nvim_create_autocmd("CursorMovedI", {
+      group = group,
+      callback = function()
+        if not self.visible then return end
+        
+        if self.timer then
+          vim.fn.timer_stop(self.timer)
+        end
+        
+        self.timer = vim.fn.timer_start(
+          self.config.auto_close.cursor_moved_delay or 100,
+          function()
+            if not self:is_at_trigger_char() then
+              self:hide()
+            end
+          end
+        )
+      end,
+    })
+  end
+end
+
+function SignatureHelper:is_at_trigger_char()
+  if not self.config.trigger_chars then return false end
+  
+  local pos = api.nvim_win_get_cursor(0)
+  local line = api.nvim_get_current_line()
+  local col = pos[2]
+  
+  -- Check current and previous character
+  local curr_char = line:sub(col, col)
+  local prev_char = col > 0 and line:sub(col, col) or ""
+  
+  return vim.tbl_contains(self.config.trigger_chars, curr_char) or
+         vim.tbl_contains(self.config.trigger_chars, prev_char)
+end
+
+function SignatureHelper:setup_triggers()
+  local group = api.nvim_create_augroup("SignatureHelpTrigger", { clear = true })
+  
+  -- Trigger on insert mode events
+  api.nvim_create_autocmd({"InsertCharPre", "CursorMovedI"}, {
+    group = group,
+    callback = function()
+      if self.timer then
+        vim.fn.timer_stop(self.timer)
+      end
+      
+      self.timer = vim.fn.timer_start(self.config.debounce_ms, function()
+        if self:is_at_trigger_char() then
+          self:trigger()
+        end
+      end)
+    end,
+  })
+  
+  -- Hide on insert mode exit
+  api.nvim_create_autocmd("InsertLeave", {
+    group = group,
+    callback = function()
+      self:hide()
+    end,
+  })
+end
+
 -- Module setup
 local M = {}
 
@@ -394,39 +494,50 @@ local instance = nil
 ---Setup the signature helper
 ---@param opts? table
 function M.setup(opts)
-  instance = SignatureHelper.new(opts)
-  instance:setup_auto_close()
-  
-  -- Setup autocommands
-  local group = api.nvim_create_augroup("SignatureHelp", { clear = true })
-  
-  -- Trigger on insert mode events
-  api.nvim_create_autocmd({"InsertCharPre", "CursorMovedI"}, {
-    group = group,
-    callback = function()
-      if instance.timer then
-        fn.timer_stop(instance.timer)
-      end
-      instance.timer = fn.timer_start(instance.config.debounce_ms, function()
-        instance:trigger()
+  if not instance then
+    instance = SignatureHelper.new(opts)
+    instance:setup_auto_close()
+    instance:setup_triggers()
+    
+    -- Override default LSP handler
+    lsp.handlers["textDocument/signatureHelp"] = function(err, result, ctx)
+      if err or not result then return end
+      vim.schedule(function()
+        instance:display(result)
       end)
-    end,
-  })
-  
-  -- Cleanup on mode change
-  api.nvim_create_autocmd("InsertLeave", {
-    group = group,
-    callback = function()
-      if instance then
-        instance:hide()
-      end
-    end,
-  })
-  
-  -- Override default LSP handler
-  lsp.handlers["textDocument/signatureHelp"] = function(err, result, ctx)
-    if err or not result or not instance then return end
-    instance:display(result)
+    end
+  else
+    -- Update existing instance config
+    instance.config = vim.tbl_deep_extend("force", instance.config, opts or {})
+    instance:setup_highlights()
+  end
+end
+
+-- Add cleanup method
+function M.cleanup()
+  if instance then
+    instance:hide()
+    instance = nil
+    collectgarbage("collect")
+  end
+end
+
+-- Add method to check if signature help is visible
+function M.is_visible()
+  return instance and instance.visible or false
+end
+
+-- Add method to manually trigger signature help
+function M.trigger()
+  if instance then
+    instance:trigger()
+  end
+end
+
+-- Add method to manually hide signature help
+function M.hide()
+  if instance then
+    instance:hide()
   end
 end
 
