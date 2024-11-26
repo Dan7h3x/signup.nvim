@@ -26,7 +26,7 @@ local function debounce(fn, ms)
     if timer then
       vim.fn.timer_stop(timer)
     end
-    local args = {...}
+    local args = { ... }
     timer = vim.fn.timer_start(ms, function()
       timer = nil
       fn(unpack(args))
@@ -113,28 +113,28 @@ end
 
 function SignatureHelp:setup_trigger_chars()
   if not self.config.trigger_chars then return end
-  
+
   local group = api.nvim_create_augroup("SignatureHelpTrigger", { clear = true })
-  
+
   -- Optimized trigger detection
   local trigger_check = debounce(function()
     if not self.enabled or vim.api.nvim_get_mode().mode ~= "i" then return end
-    
+
     local cursor = api.nvim_win_get_cursor(0)
     local line = api.nvim_get_current_line()
     local col = cursor[2]
-    
+
     -- Check current and previous character
     local curr_char = line:sub(col, col)
     local prev_char = col > 0 and line:sub(col, col) or ""
-    
-    if vim.tbl_contains(self.config.trigger_chars, curr_char) or 
-       vim.tbl_contains(self.config.trigger_chars, prev_char) then
+
+    if vim.tbl_contains(self.config.trigger_chars, curr_char) or
+        vim.tbl_contains(self.config.trigger_chars, prev_char) then
       self:trigger()
     end
   end, self.config.debounce_time)
 
-  api.nvim_create_autocmd({"InsertCharPre", "CursorMovedI"}, {
+  api.nvim_create_autocmd({ "InsertCharPre", "CursorMovedI" }, {
     group = group,
     callback = trigger_check,
   })
@@ -172,14 +172,14 @@ function SignatureHelp:display(result)
 
   -- Memory-efficient comparison
   local should_update = not self.current_signatures or
-    not vim.deep_equal(result.signatures, self.current_signatures)
+      not vim.deep_equal(result.signatures, self.current_signatures)
 
   if not should_update then return end
 
   local active_sig_idx = result.activeSignature or 0
-  local active_param_idx = result.activeParameter or 
-    (result.signatures[active_sig_idx + 1] and result.signatures[active_sig_idx + 1].activeParameter) or 
-    0
+  local active_param_idx = result.activeParameter or
+      (result.signatures[active_sig_idx + 1] and result.signatures[active_sig_idx + 1].activeParameter) or
+      0
 
   -- Create content
   local content = self:create_signature_content(
@@ -198,7 +198,7 @@ end
 
 function SignatureHelp:create_signature_content(signatures, active_sig_idx, active_param_idx)
   local content = {}
-  
+
   for idx, signature in ipairs(signatures) do
     if not signature then goto continue end
 
@@ -213,16 +213,16 @@ function SignatureHelp:create_signature_content(signatures, active_sig_idx, acti
     if signature.parameters and #signature.parameters > 0 then
       for param_idx, param in ipairs(signature.parameters) do
         if not param then goto continue_param end
-        
+
         local param_prefix = param_idx - 1 == active_param_idx and "→ " or "  "
         local param_label = type(param.label) == "table" and param.label.value or param.label
-        
+
         -- Split parameter documentation into lines if it exists
         if param.documentation then
-          local doc = type(param.documentation) == "table" 
-            and param.documentation.value 
-            or tostring(param.documentation)
-          
+          local doc = type(param.documentation) == "table"
+              and param.documentation.value
+              or tostring(param.documentation)
+
           table.insert(content, param_prefix .. self.config.icons.parameter .. " " .. tostring(param_label))
           for _, line in ipairs(split_lines(doc)) do
             table.insert(content, "    " .. line)
@@ -230,17 +230,17 @@ function SignatureHelp:create_signature_content(signatures, active_sig_idx, acti
         else
           table.insert(content, param_prefix .. self.config.icons.parameter .. " " .. tostring(param_label))
         end
-        
+
         ::continue_param::
       end
     end
 
     -- Documentation
     if signature.documentation then
-      local doc = type(signature.documentation) == "table" 
-        and signature.documentation.value 
-        or tostring(signature.documentation)
-      
+      local doc = type(signature.documentation) == "table"
+          and signature.documentation.value
+          or tostring(signature.documentation)
+
       table.insert(content, "  " .. self.config.icons.documentation .. " Documentation:")
       for _, line in ipairs(split_lines(doc)) do
         table.insert(content, "    " .. line)
@@ -261,7 +261,7 @@ function SignatureHelp:update_window(content, signatures, active_param_idx)
   if not bufnr or not api.nvim_buf_is_valid(bufnr) then
     bufnr = api.nvim_create_buf(false, true)
     self.buf = bufnr
-    
+
     -- Set buffer options
     api.nvim_buf_set_option(bufnr, "buftype", "nofile")
     api.nvim_buf_set_option(bufnr, "bufhidden", "wipe")
@@ -341,19 +341,22 @@ function SignatureHelp:apply_highlights(signatures, active_param_idx)
     -- Method icon highlight
     local method_start = line:find(vim.pesc(self.config.icons.method))
     if method_start then
-      api.nvim_buf_add_highlight(self.buf, -1, "SignatureHelpMethod", i-1, method_start-1, method_start-1 + #self.config.icons.method)
+      api.nvim_buf_add_highlight(self.buf, -1, "SignatureHelpMethod", i - 1, method_start - 1,
+        method_start - 1 + #self.config.icons.method)
     end
 
     -- Parameter icon highlight
     local param_start = line:find(vim.pesc(self.config.icons.parameter))
     if param_start then
-      api.nvim_buf_add_highlight(self.buf, -1, "SignatureHelpParameter", i-1, param_start-1, param_start-1 + #self.config.icons.parameter)
+      api.nvim_buf_add_highlight(self.buf, -1, "SignatureHelpParameter", i - 1, param_start - 1,
+        param_start - 1 + #self.config.icons.parameter)
     end
 
     -- Documentation icon highlight
     local doc_start = line:find(vim.pesc(self.config.icons.documentation))
     if doc_start then
-      api.nvim_buf_add_highlight(self.buf, -1, "SignatureHelpDocumentation", i-1, doc_start-1, doc_start-1 + #self.config.icons.documentation)
+      api.nvim_buf_add_highlight(self.buf, -1, "SignatureHelpDocumentation", i - 1, doc_start - 1,
+        doc_start - 1 + #self.config.icons.documentation)
     end
   end
 end
@@ -362,7 +365,7 @@ function M.setup(opts)
   if not signature_instance then
     signature_instance = SignatureHelp.new()
   end
-  
+
   signature_instance.config = vim.tbl_deep_extend("force", signature_instance.config, opts or {})
   signature_instance:setup_trigger_chars()
 
