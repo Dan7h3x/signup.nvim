@@ -120,8 +120,8 @@ function SignatureHelp.new()
     timer = nil,
     visible = false,
     current_signatures = nil,
-    enabled = false,
-    normal_mode_active = false,
+    enabled = true,
+    normal_mode_active = true,
     config = {
       silent = false,
       number = true,
@@ -157,7 +157,7 @@ function SignatureHelp.new()
       },
       render_style = {
         separator = true,   -- Show separators between sections
-        compact = false,    -- Compact mode removes empty lines
+        compact = true,    -- Compact mode removes empty lines
         align_icons = true, -- Align icons in separate column
       },
     }
