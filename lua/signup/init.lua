@@ -11,6 +11,8 @@ local fn = vim.fn
 ---@field debounce_ms number Debounce time in milliseconds
 ---@field icons table<string, string> Icons for different parts
 ---@field hl_groups table<string, table> Highlight groups
+---@field auto_close table<string, boolean> Auto-close functionality
+---@field render table<string, boolean> Render options
 local DEFAULT_CONFIG = {
   border = "solid",
   max_width = 40,
@@ -39,6 +41,21 @@ local DEFAULT_CONFIG = {
       bg = "#89DCEB",
       bold = true,
     },
+    default_value = { fg = "#7C7F93", italic = true },
+    parameter_separator = { fg = "#6E738D" },
+    parameter_count = { fg = "#9399B2", italic = true },
+  },
+  auto_close = {
+    normal_mode = true,
+    insert_mode = false,
+    cursor_moved_delay = 100,
+  },
+  render = {
+    show_default_value = true,
+    parameter_separator = ", ",
+    max_parameter_width = 30,
+    align_parameters = true,
+    show_parameter_count = true,
   },
 }
 
@@ -70,24 +87,35 @@ local utils = {
   end,
 
   ---@param param table LSP parameter object
-  ---@return string?
-  extract_param_name = function(param)
-    if not param or not param.label then return nil end
+  ---@return string?, string? name and default value
+  parse_parameter = function(param)
+    if not param or not param.label then return nil, nil end
     local label = utils.safe_str(param.label)
     
-    -- Try different parameter formats
+    -- Try to extract name and default value
     local patterns = {
-      "^([%w_]+)[:%s]",    -- name: type
-      "^([%w_]+)$",        -- name
-      "%(([%w_]+)%)",      -- (name)
-      "<([%w_]+)>",        -- <name>
+      "^([%w_]+)%s*=%s*(.+)$",     -- name = default_value
+      "^([%w_]+):%s*[%w_]+%s*=%s*(.+)$", -- name: type = default_value
+      "^([%w_]+)[:%s]",            -- name: type or name
+      "^([%w_]+)$",                -- name
+      "%(([%w_]+)%)",              -- (name)
+      "<([%w_]+)>",                -- <name>
     }
     
     for _, pattern in ipairs(patterns) do
-      local name = label:match(pattern)
-      if name then return name end
+      local name, default = label:match(pattern)
+      if name then
+        return name, default
+      end
     end
-    return nil
+    return nil, nil
+  end,
+
+  truncate = function(str, max_len)
+    if #str > max_len then
+      return str:sub(1, max_len - 3) .. "..."
+    end
+    return str
   end,
 }
 
@@ -121,28 +149,67 @@ end
 function SignatureHelper:format_signature(signature, active_param)
   local lines = {}
   
-  -- Method signature
+  -- Method signature with parameter count
   local method = utils.safe_str(signature.label)
-  table.insert(lines, self.config.icons.method .. method)
+  local param_count = signature.parameters and #signature.parameters or 0
+  local count_suffix = self.config.render.show_parameter_count 
+    and string.format(" (%d parameter%s)", param_count, param_count == 1 and "" or "s")
+    or ""
+  
+  table.insert(lines, self.config.icons.method .. method .. count_suffix)
   
   -- Parameters
   if signature.parameters and #signature.parameters > 0 then
+    local max_name_width = 0
+    local params = {}
+    
+    -- First pass: collect parameter info and calculate max width
     for i, param in ipairs(signature.parameters) do
       if not param then goto continue end
       
-      local prefix = i == (active_param or 0) + 1 and "→ " or "  "
-      local param_text = utils.safe_str(param.label)
-      table.insert(lines, prefix .. self.config.icons.parameter .. param_text)
+      local name, default = utils.parse_parameter(param)
+      if not name then goto continue end
+      
+      local param_info = {
+        index = i,
+        name = name,
+        default = default,
+        doc = param.documentation and utils.safe_str(param.documentation) or nil,
+        is_active = i == (active_param or 0) + 1
+      }
+      
+      max_name_width = math.max(max_name_width, #name)
+      table.insert(params, param_info)
+      
+      ::continue::
+    end
+    
+    -- Second pass: format parameters
+    for _, param_info in ipairs(params) do
+      local prefix = param_info.is_active and "→ " or "  "
+      local name_padding = self.config.render.align_parameters 
+        and string.rep(" ", max_name_width - #param_info.name) 
+        or ""
+      
+      -- Parameter name and type
+      local param_line = prefix .. self.config.icons.parameter .. 
+        param_info.name .. name_padding
+      
+      -- Default value
+      if self.config.render.show_default_value and param_info.default then
+        param_line = param_line .. " = " .. 
+          utils.truncate(param_info.default, self.config.render.max_parameter_width)
+      end
+      
+      table.insert(lines, param_line)
       
       -- Parameter documentation
-      if param.documentation then
-        local doc_lines = utils.split_lines(utils.safe_str(param.documentation))
+      if param_info.doc then
+        local doc_lines = utils.split_lines(param_info.doc)
         for _, line in ipairs(doc_lines) do
           table.insert(lines, "    " .. line)
         end
       end
-      
-      ::continue::
     end
   end
   
@@ -227,6 +294,44 @@ function SignatureHelper:apply_highlights()
         )
       end
     end
+    
+    -- Highlight default values
+    local default_start = line:find(" = ")
+    if default_start then
+      api.nvim_buf_add_highlight(
+        self.buf,
+        -1,
+        "SignatureHelpDefaultValue",
+        i - 1,
+        default_start,
+        -1
+      )
+    end
+    
+    -- Highlight parameter count
+    local count_start = line:find(" %(%d+")
+    if count_start then
+      api.nvim_buf_add_highlight(
+        self.buf,
+        -1,
+        "SignatureHelpParameterCount",
+        i - 1,
+        count_start,
+        -1
+      )
+    end
+    
+    -- Highlight active parameter
+    if line:find("^→ ") then
+      api.nvim_buf_add_highlight(
+        self.buf,
+        -1,
+        "SignatureHelpActiveParameter",
+        i - 1,
+        0,
+        -1
+      )
+    end
   end
 end
 
@@ -290,6 +395,7 @@ local instance = nil
 ---@param opts? table
 function M.setup(opts)
   instance = SignatureHelper.new(opts)
+  instance:setup_auto_close()
   
   -- Setup autocommands
   local group = api.nvim_create_augroup("SignatureHelp", { clear = true })
