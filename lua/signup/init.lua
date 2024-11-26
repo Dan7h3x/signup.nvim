@@ -2,17 +2,58 @@ local api = vim.api
 local lsp = vim.lsp
 local fn = vim.fn
 
----@class SignatureConfig
----@field border "none"|"single"|"double"|"rounded"|"solid"|"shadow" Border style
----@field max_width number Maximum window width
----@field max_height number Maximum window height
----@field win_opts table Window options
----@field trigger_chars string[] Characters that trigger signature help
----@field debounce_ms number Debounce time in milliseconds
----@field icons table<string, string> Icons for different parts
----@field hl_groups table<string, table> Highlight groups
----@field auto_close table<string, boolean> Auto-close functionality
----@field render table<string, boolean> Render options
+-- Define utils table first
+local utils = {
+  ---@param str string?
+  ---@return string[]
+  split_lines = function(str)
+    if not str or type(str) ~= "string" then return {} end
+    return vim.split(str, "\n", { trimempty = true })
+  end,
+
+  ---@param value any
+  ---@return string
+  safe_str = function(value)
+    if type(value) == "table" then
+      return value.value or ""
+    end
+    return tostring(value or "")
+  end,
+
+  ---@param param table LSP parameter object
+  ---@return string?, string? name and default value
+  parse_parameter = function(param)
+    if not param or not param.label then return nil, nil end
+    local label = utils.safe_str(param.label)
+    
+    -- Try to extract name and default value
+    local patterns = {
+      "^([%w_]+)%s*=%s*(.+)$",     -- name = default_value
+      "^([%w_]+):%s*[%w_]+%s*=%s*(.+)$", -- name: type = default_value
+      "^([%w_]+)[:%s]",            -- name: type or name
+      "^([%w_]+)$",                -- name
+      "%(([%w_]+)%)",              -- (name)
+      "<([%w_]+)>",                -- <name>
+    }
+    
+    for _, pattern in ipairs(patterns) do
+      local name, default = label:match(pattern)
+      if name then
+        return name, default
+      end
+    end
+    return nil, nil
+  end,
+
+  truncate = function(str, max_len)
+    if #str > max_len then
+      return str:sub(1, max_len - 3) .. "..."
+    end
+    return str
+  end,
+}
+
+-- Rest of your code remains the same, starting with DEFAULT_CONFIG...
 local DEFAULT_CONFIG = {
   border = "solid",
   max_width = 40,
@@ -67,57 +108,6 @@ local DEFAULT_CONFIG = {
 ---@field private current_sig table? Current signature data
 local SignatureHelper = {}
 SignatureHelper.__index = SignatureHelper
-
--- Utility functions
-local utils = {
-  ---@param str string?
-  ---@return string[]
-  split_lines = function(str)
-    if not str or type(str) ~= "string" then return {} end
-    return vim.split(str, "\n", { trimempty = true })
-  end,
-
-  ---@param value any
-  ---@return string
-  safe_str = function(value)
-    if type(value) == "table" then
-      return value.value or ""
-    end
-    return tostring(value or "")
-  end,
-
-  ---@param param table LSP parameter object
-  ---@return string?, string? name and default value
-  parse_parameter = function(param)
-    if not param or not param.label then return nil, nil end
-    local label = utils.safe_str(param.label)
-    
-    -- Try to extract name and default value
-    local patterns = {
-      "^([%w_]+)%s*=%s*(.+)$",     -- name = default_value
-      "^([%w_]+):%s*[%w_]+%s*=%s*(.+)$", -- name: type = default_value
-      "^([%w_]+)[:%s]",            -- name: type or name
-      "^([%w_]+)$",                -- name
-      "%(([%w_]+)%)",              -- (name)
-      "<([%w_]+)>",                -- <name>
-    }
-    
-    for _, pattern in ipairs(patterns) do
-      local name, default = label:match(pattern)
-      if name then
-        return name, default
-      end
-    end
-    return nil, nil
-  end,
-
-  truncate = function(str, max_len)
-    if #str > max_len then
-      return str:sub(1, max_len - 3) .. "..."
-    end
-    return str
-  end,
-}
 
 ---Create a new signature helper instance
 ---@param config? table
