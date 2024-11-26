@@ -380,3 +380,58 @@ function SignatureHelper:apply_doc_highlights()
 end
 
 -- Rest of your code remains the same...
+
+-- At the top of the file, add proper module structure
+local M = {}
+
+-- Update the setup function to be more robust
+function M.setup(opts)
+  opts = opts or {}
+  
+  -- Ensure we have a valid config table
+  if type(opts) ~= "table" then
+    opts = {}
+  end
+  
+  -- Create new instance with proper error handling
+  local ok, instance = pcall(SignatureHelper.new, opts)
+  if not ok then
+    vim.notify("Failed to initialize signature helper: " .. tostring(instance), vim.log.levels.ERROR)
+    return
+  end
+  
+  -- Setup LSP handler safely
+  lsp.handlers["textDocument/signatureHelp"] = function(err, result, ctx)
+    if err then
+      vim.notify("Signature help error: " .. tostring(err), vim.log.levels.ERROR)
+      return
+    end
+    
+    if not result or not result.signatures then return end
+    
+    vim.schedule(function()
+      instance:display(result)
+    end)
+  end
+  
+  return instance
+end
+
+-- Add these helper functions to the module
+function M.is_available()
+  return instance ~= nil
+end
+
+function M.trigger()
+  if instance then
+    instance:trigger()
+  end
+end
+
+function M.hide()
+  if instance then
+    instance:hide()
+  end
+end
+
+return M
