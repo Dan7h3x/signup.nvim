@@ -5,114 +5,6 @@ local M = {}
 local SignatureHelp = {}
 SignatureHelp.__index = SignatureHelp
 
--- Add these at the top of the file, after the local declarations
-local function is_valid_string(str)
-  return type(str) == "string" and str ~= ""
-end
-
-local function safe_find(str, pattern, init)
-  if not is_valid_string(str) or not is_valid_string(pattern) then
-    return nil
-  end
-  return str:find(pattern, init)
-end
-
--- Update the utils table with enhanced functions
-local utils = {
-  safe_tostring = function(value)
-    if type(value) == "table" then
-      return value.value or ""
-    end
-    return tostring(value or "")
-  end,
-
-  split_lines = function(str)
-    if not is_valid_string(str) then return {} end
-    
-    local lines = {}
-    local pos = 1
-    local line_start = 1
-    
-    while pos <= #str do
-      -- Find next newline
-      local newline_pos = safe_find(str, "[\r\n]", pos)
-      
-      if not newline_pos then
-        -- No more newlines, add remaining text as last line
-        local last_line = str:sub(line_start)
-        if last_line ~= "" then
-          table.insert(lines, last_line)
-        end
-        break
-      end
-      
-      -- Extract line
-      local line = str:sub(line_start, newline_pos - 1)
-      if line ~= "" then
-        table.insert(lines, line)
-      end
-      
-      -- Handle \r\n
-      if str:sub(newline_pos, newline_pos + 1) == "\r\n" then
-        pos = newline_pos + 2
-        line_start = pos
-      else
-        pos = newline_pos + 1
-        line_start = pos
-      end
-    end
-    
-    return lines
-  end,
-
-  extract_param_name = function(param)
-    if not param then return nil end
-    
-    local label = type(param.label) == "table" and param.label.value or param.label
-    if not label then return nil end
-    
-    local str_label = tostring(label)
-    -- More robust parameter name extraction
-    local patterns = {
-      "^([%w_]+)[:%s]",    -- param: type
-      "^([%w_]+)$",        -- param
-      "%(([%w_]+)%)",      -- (param)
-      "<([%w_]+)>",        -- <param>
-      "{([%w_]+)}",        -- {param}
-    }
-    
-    for _, pattern in ipairs(patterns) do
-      local name = str_label:match(pattern)
-      if name then return name end
-    end
-    
-    return nil
-  end,
-
-  debounce = function(fn, ms)
-    local timer = nil
-    return function(...)
-      if timer then
-        pcall(vim.fn.timer_stop, timer)
-      end
-      local args = {...}
-      timer = vim.fn.timer_start(ms, function()
-        timer = nil
-        pcall(fn, unpack(args))
-      end)
-    end
-  end,
-
-  -- Add safe buffer and window checks
-  is_valid_buf = function(bufnr)
-    return bufnr and type(bufnr) == "number" and api.nvim_buf_is_valid(bufnr)
-  end,
-
-  is_valid_win = function(winnr)
-    return winnr and type(winnr) == "number" and api.nvim_win_is_valid(winnr)
-  end,
-}
-
 function SignatureHelp.new()
   return setmetatable({
     win = nil,
@@ -120,8 +12,8 @@ function SignatureHelp.new()
     timer = nil,
     visible = false,
     current_signatures = nil,
-    enabled = true,
-    normal_mode_active = true,
+    enabled = false,
+    normal_mode_active = false,
     config = {
       silent = false,
       number = true,
@@ -157,7 +49,7 @@ function SignatureHelp.new()
       },
       render_style = {
         separator = true,   -- Show separators between sections
-        compact = true,    -- Compact mode removes empty lines
+        compact = false,    -- Compact mode removes empty lines
         align_icons = true, -- Align icons in separate column
       },
     }
@@ -173,85 +65,52 @@ local function signature_index_comment(index)
 end
 
 function SignatureHelp:parse_signature_info(signature)
-  if not signature or type(signature) ~= "table" or not signature.label then
-    return {
-      name = "unknown",
-      full_signature = "",
-      documentation = "",
-      parameters = {}
-    }
-  end
-
   -- Extract function name and full signature
-  local function_name = signature.label:match("([^%(]+)") or "unknown"
+  local function_name = signature.label:match("([^%(]+)%(")
   local parameters = signature.parameters or {}
-
+  
   -- Parse parameters
   local parsed_params = {}
   for i, param in ipairs(parameters) do
-    if param and param.label then
-      local param_info = {
-        label = param.label,
-        documentation = nil,
-        type = nil
-      }
-
-      -- Handle documentation
-      if param.documentation then
-        param_info.documentation = type(param.documentation) == "string"
-            and param.documentation
-            or (param.documentation.value or "")
-      end
-
-      -- Try to extract type information if available
-      if type(param.label) == "string" then
-        param_info.type = param.label:match(":%s*(.+)$")
-      end
-
-      parsed_params[i] = param_info
-    end
+    local param_info = {
+      label = param.label,
+      documentation = param.documentation and (
+        type(param.documentation) == "string" and param.documentation or
+        param.documentation.value
+      ),
+      -- Extract type information if available in the label
+      type = param.label:match(":%s*(.+)$"),
+    }
+    parsed_params[i] = param_info
   end
-
-  -- Handle documentation
-  local documentation = nil
-  if signature.documentation then
-    documentation = type(signature.documentation) == "string"
-        and signature.documentation
-        or (signature.documentation.value or "")
-  end
-
+  
   return {
     name = function_name,
     full_signature = signature.label,
-    documentation = documentation,
+    documentation = signature.documentation and (
+      type(signature.documentation) == "string" and signature.documentation or
+      signature.documentation.value
+    ),
     parameters = parsed_params,
   }
 end
 
 local function markdown_for_signature_list(signatures, active_sig_idx, active_param_idx, config)
-  if not signatures or type(signatures) ~= "table" then
-    return {}, {}
-  end
-
   local lines, labels = {}, {}
-  local max_method_len = 0
   local number = config.number and #signatures > 1
-
+  local max_method_len = 0
+  
   -- First pass to calculate alignment
   if config.render_style.align_icons then
     for _, signature in ipairs(signatures) do
-      if signature and signature.label then
-        max_method_len = math.max(max_method_len, #signature.label)
-      end
+      max_method_len = math.max(max_method_len, #signature.label)
     end
   end
 
   for index, signature in ipairs(signatures) do
-    if not signature then goto continue end
-
     local parsed = SignatureHelp:parse_signature_info(signature)
     local is_active = index - 1 == active_sig_idx
-
+    
     if not config.render_style.compact then
       table.insert(lines, "")
     end
@@ -260,43 +119,38 @@ local function markdown_for_signature_list(signatures, active_sig_idx, active_pa
     -- Method header
     local method_prefix = is_active and "→" or " "
     table.insert(lines, string.format("%s %s Method:", method_prefix, config.icons.method))
-
+    
     -- Signature with syntax highlighting
-    if parsed.full_signature and parsed.full_signature ~= "" then
-      table.insert(lines, string.format("```%s", vim.bo.filetype))
-      table.insert(lines, parsed.full_signature)
-      table.insert(lines, "```")
-    end
+    table.insert(lines, string.format("```%s", vim.bo.filetype))
+    table.insert(lines, parsed.full_signature)
+    table.insert(lines, "```")
 
     -- Parameters section
-    if parsed.parameters and #parsed.parameters > 0 then
+    if #parsed.parameters > 0 then
       if config.render_style.separator then
         table.insert(lines, string.rep("─", 40))
       end
       table.insert(lines, string.format("%s Parameters:", config.icons.parameter))
-
+      
       for param_idx, param in ipairs(parsed.parameters) do
-        if not param then goto continue_param end
-
         local is_active_param = is_active and param_idx - 1 == active_param_idx
         local param_prefix = is_active_param and "→" or " "
-
+        
         -- Parameter name and type
-        local param_text = string.format("%s %s", param_prefix, param.label or "")
-
+        local param_text = string.format("%s %s", param_prefix, param.label)
+        
         -- Parameter documentation if available
         if param.documentation then
           param_text = param_text .. string.format(" - %s", param.documentation)
         end
-
+        
         -- Default value if available
         local default_value = SignatureHelp:extract_default_value(param)
         if default_value then
           param_text = param_text .. string.format(" (default: %s)", default_value)
         end
-
+        
         table.insert(lines, "  " .. param_text)
-        ::continue_param::
       end
     end
 
@@ -315,10 +169,8 @@ local function markdown_for_signature_list(signatures, active_sig_idx, active_pa
     if index ~= #signatures and config.render_style.separator then
       table.insert(lines, string.rep("═", 40))
     end
-
-    ::continue::
   end
-
+  
   return lines, labels
 end
 
@@ -425,132 +277,67 @@ function SignatureHelp:extract_default_value(param_info)
   return nil
 end
 
-function SignatureHelp:set_active_parameter_highlights(signatures, active_param_idx)
+function SignatureHelp:set_active_parameter_highlights(active_param_idx, signatures, labels)
   if not self.buf or not api.nvim_buf_is_valid(self.buf) then return end
 
   -- Clear existing highlights
   api.nvim_buf_clear_namespace(self.buf, -1, 0, -1)
 
-  local lines = api.nvim_buf_get_lines(self.buf, 0, -1, false)
-  for i, line in ipairs(lines) do
-    -- Highlight icons
-    local icon_highlights = {
-      { self.config.icons.method, "SignatureHelpMethod" },
-      { self.config.icons.parameter, "SignatureHelpParameter" },
-      { self.config.icons.documentation, "SignatureHelpDocumentation" },
-    }
-
-    for _, icon_data in ipairs(icon_highlights) do
-      local icon, hl_group = unpack(icon_data)
-      local icon_start = line:find(vim.pesc(icon))
-      if icon_start then
+  for index, signature in ipairs(signatures) do
+    local parsed = self:parse_signature_info(signature)
+    local parameter = signature.activeParameter or active_param_idx
+    
+    if parameter and parameter >= 0 and parsed.parameters and parameter < #parsed.parameters then
+      local param_info = parsed.parameters[parameter + 1]
+      local param_label = param_info.label:match("^([^:]+)") -- Extract parameter name without type
+      
+      -- Find the parameter range in the signature
+      local start_pos, end_pos = self:find_parameter_range(signature.label, param_label)
+      
+      if start_pos and end_pos then
+        -- Add active parameter highlight
         api.nvim_buf_add_highlight(
-          self.buf, 
-          -1, 
-          hl_group, 
-          i-1, 
-          icon_start-1, 
-          icon_start-1 + #icon
+          self.buf,
+          -1,
+          "LspSignatureActiveParameter",
+          labels[index] + 2, -- +2 to account for method header and code block start
+          start_pos - 1,
+          end_pos
         )
       end
     end
-
-    -- Highlight active parameter
-    if signatures and active_param_idx then
-      for _, signature in ipairs(signatures) do
-        if signature.parameters and signature.parameters[active_param_idx + 1] then
-          local param = signature.parameters[active_param_idx + 1]
-          local param_name = utils.extract_param_name(param)
-          
-          if param_name then
-            local start_idx = 1
-            while true do
-              local param_start = line:find(vim.pesc(param_name), start_idx, true)
-              if not param_start then break end
-              
-              local param_end = param_start + #param_name - 1
-              local prev_char = param_start > 1 and line:sub(param_start - 1, param_start - 1) or " "
-              local next_char = line:sub(param_end + 1, param_end + 1)
-              
-              -- Verify it's a whole word
-              if (prev_char:match("[^%w_]") or prev_char == "") and
-                 (next_char:match("[^%w_]") or next_char == "") then
-                api.nvim_buf_add_highlight(
-                  self.buf,
-                  -1,
-                  "LspSignatureActiveParameter",
-                  i-1,
-                  param_start-1,
-                  param_end
-                )
-              end
-              
-              start_idx = param_end + 1
-            end
-          end
-        end
-      end
-    end
   end
+
+  -- Add icon highlights
+  self:highlight_icons()
 end
 
-function SignatureHelp:create_signature_content(signatures, active_sig_idx, active_param_idx)
-  local content = {}
-  
-  for idx, signature in ipairs(signatures) do
-    if not signature then goto continue end
+function SignatureHelp:highlight_icons()
+  local icon_highlights = {
+    { self.config.icons.method,        "SignatureHelpMethod" },
+    { self.config.icons.parameter,     "SignatureHelpParameter" },
+    { self.config.icons.documentation, "SignatureHelpDocumentation" },
+  }
 
-    local is_active = idx - 1 == active_sig_idx
-    local prefix = is_active and "→ " or "  "
-
-    -- Method signature
-    local method_label = utils.safe_tostring(signature.label)
-    table.insert(content, prefix .. self.config.icons.method .. " " .. method_label)
-
-    -- Parameters
-    if signature.parameters and #signature.parameters > 0 then
-      for param_idx, param in ipairs(signature.parameters) do
-        if not param then goto continue_param end
-        
-        local param_prefix = param_idx - 1 == active_param_idx and "→ " or "  "
-        local param_label = utils.safe_tostring(param.label)
-        
-        -- Parameter with documentation
-        if param.documentation then
-          local doc = utils.safe_tostring(param.documentation)
-          table.insert(content, param_prefix .. self.config.icons.parameter .. " " .. param_label)
-          
-          -- Split documentation into lines
-          for _, line in ipairs(utils.split_lines(doc)) do
-            if line:match("%S") then -- Only add non-empty lines
-              table.insert(content, "    " .. line)
-            end
-          end
-        else
-          table.insert(content, param_prefix .. self.config.icons.parameter .. " " .. param_label)
-        end
-        
-        ::continue_param::
+  for _, icon_hl in ipairs(icon_highlights) do
+    local icon, hl_group = unpack(icon_hl)
+    local line_num = 0
+    while line_num < api.nvim_buf_line_count(self.buf) do
+      local line = api.nvim_buf_get_lines(self.buf, line_num, line_num + 1, false)[1]
+      local start_col = line:find(vim.pesc(icon))
+      if start_col then
+        api.nvim_buf_add_highlight(
+          self.buf,
+          -1,
+          hl_group,
+          line_num,
+          start_col - 1,
+          start_col - 1 + #icon
+        )
       end
+      line_num = line_num + 1
     end
-
-    -- Documentation
-    if signature.documentation then
-      local doc = utils.safe_tostring(signature.documentation)
-      if doc:match("%S") then -- Only add if documentation is not empty
-        table.insert(content, "  " .. self.config.icons.documentation .. " Documentation:")
-        for _, line in ipairs(utils.split_lines(doc)) do
-          if line:match("%S") then
-            table.insert(content, "    " .. line)
-          end
-        end
-      end
-    end
-
-    ::continue::
   end
-
-  return content
 end
 
 function SignatureHelp:display(result)
@@ -569,18 +356,30 @@ function SignatureHelp:display(result)
     (result.signatures[active_sig_idx + 1] and result.signatures[active_sig_idx + 1].activeParameter) or 
     0
 
-  local content = self:create_signature_content(
-    result.signatures,
+  local markdown, labels = markdown_for_signature_list(
+    result.signatures, 
     active_sig_idx,
-    active_param_idx
+    active_param_idx,
+    self.config
   )
+  
+  self.current_signatures = result.signatures
 
-  if #content > 0 then
-    self:update_window(content)
-    vim.schedule(function()
-      self:set_active_parameter_highlights(result.signatures, active_param_idx)
-    end)
-    self.current_signatures = result.signatures
+  if #markdown > 0 then
+    if self.config.dock_mode.enabled then
+      local win, buf = self:create_dock_window()
+      api.nvim_buf_set_option(buf, "modifiable", true)
+      api.nvim_buf_set_lines(buf, 0, -1, false, markdown)
+      api.nvim_buf_set_option(buf, "modifiable", false)
+      api.nvim_buf_set_option(buf, "filetype", "markdown")
+      self:set_active_parameter_highlights(active_param_idx, result.signatures, labels)
+      self:apply_treesitter_highlighting()
+    else
+      self:create_float_window(markdown)
+      api.nvim_buf_set_option(self.buf, "filetype", "markdown")
+      self:set_active_parameter_highlights(active_param_idx, result.signatures, labels)
+      self:apply_treesitter_highlighting()
+    end
   else
     self:hide()
   end
@@ -743,111 +542,55 @@ function SignatureHelp:create_dock_window()
   return self.dock_win, self.dock_buf
 end
 
-function SignatureHelp:update_window(content)
-  -- Safely create or update buffer
-  if not utils.is_valid_buf(self.buf) then
-    self.buf = api.nvim_create_buf(false, true)
-    
-    -- Protect against buffer creation failure
-    if not utils.is_valid_buf(self.buf) then
-      vim.notify("Failed to create signature help buffer", vim.log.levels.ERROR)
-      return
-    end
-    
-    pcall(api.nvim_buf_set_option, self.buf, "buftype", "nofile")
-    pcall(api.nvim_buf_set_option, self.buf, "bufhidden", "wipe")
-    pcall(api.nvim_buf_set_option, self.buf, "swapfile", false)
-  end
-
-  -- Safely update content
-  local ok = pcall(function()
-    api.nvim_buf_set_option(self.buf, "modifiable", true)
-    api.nvim_buf_set_lines(self.buf, 0, -1, false, content)
-    api.nvim_buf_set_option(self.buf, "modifiable", false)
-  end)
-
-  if not ok then
-    vim.notify("Failed to update signature help content", vim.log.levels.ERROR)
-    return
-  end
-
-  -- Safely create or update window
-  if not utils.is_valid_win(self.win) then
-    local win_config = self:get_window_config(#content)
-    self.win = api.nvim_open_win(self.buf, false, win_config)
-    
-    -- Protect against window creation failure
-    if not utils.is_valid_win(self.win) then
-      vim.notify("Failed to create signature help window", vim.log.levels.ERROR)
-      return
-    end
-    
-    -- Safely set window options
-    local win_options = {
-      wrap = true,
-      winblend = self.config.winblend,
-      foldenable = false,
-      signcolumn = "no",
-      number = false,
-      relativenumber = false,
-    }
-    
-    for option, value in pairs(win_options) do
-      pcall(api.nvim_win_set_option, self.win, option, value)
-    end
-  end
-
-  self.visible = true
-end
-
-function SignatureHelp:recover()
-  self:hide()
-  self.enabled = true
-  self.normal_mode_active = false
-  self.current_signatures = nil
-  collectgarbage("collect")
-end
-
 function M.setup(opts)
-  -- Protect against multiple setups
-  if signature_instance then
-    signature_instance:recover()
-  else
-    signature_instance = SignatureHelp.new()
+  opts = opts or {}
+  local signature_help = SignatureHelp.new()
+
+  -- Properly merge configs
+  signature_help.config = vim.tbl_deep_extend("force", signature_help.config, opts)
+  signature_help:setup_autocmds()
+
+  local toggle_key = opts.toggle_key or "<C-k>"
+  vim.keymap.set("n", toggle_key, function()
+    signature_help:toggle_normal_mode()
+  end, { noremap = true, silent = true, desc = "Toggle signature help in normal mode" })
+
+  -- Setup highlighting
+  if pcall(require, "nvim-treesitter") then
+    require("nvim-treesitter").define_modules({
+      signature_help_highlighting = {
+        module_path = "signature_help.highlighting",
+        is_supported = function(lang) return lang == "markdown" end,
+      },
+    })
   end
-  
-  -- Safely merge configs
-  local ok, merged_config = pcall(vim.tbl_deep_extend, "force", 
-    signature_instance.config, 
-    opts or {}
-  )
-  
-  if not ok then
-    vim.notify("Failed to merge signature help configs", vim.log.levels.ERROR)
-    return
-  end
-  
-  signature_instance.config = merged_config
-  
-  -- Setup with error handling
-  pcall(function()
-    signature_instance:setup_trigger_chars()
-    
-    -- Setup highlights
-    local highlights = {
-      {"LspSignatureActiveParameter", {
-        fg = signature_instance.config.active_parameter_colors.fg,
-        bg = signature_instance.config.active_parameter_colors.bg,
-      }},
-      {"SignatureHelpMethod", { fg = signature_instance.config.colors.method }},
-      {"SignatureHelpParameter", { fg = signature_instance.config.colors.parameter }},
-      {"SignatureHelpDocumentation", { fg = signature_instance.config.colors.documentation }},
-    }
-    
-    for _, hl in ipairs(highlights) do
-      pcall(vim.api.nvim_set_hl, 0, hl[1], hl[2])
+
+  -- Fix: Use signature_help.config instead of opts.config
+  vim.api.nvim_set_hl(0, "LspSignatureActiveParameter", {
+    fg = signature_help.config.active_parameter_colors.fg,
+    bg = signature_help.config.active_parameter_colors.bg
+  })
+
+  -- Setup other highlights
+  local colors = signature_help.config.colors
+  vim.cmd(string.format([[
+    highlight default SignatureHelpMethod guifg=%s
+    highlight default SignatureHelpParameter guifg=%s
+    highlight default SignatureHelpDocumentation guifg=%s
+  ]], colors.method, colors.parameter, colors.documentation))
+
+  -- Setup default value highlight
+  vim.api.nvim_set_hl(0, "SignatureHelpDefaultValue", {
+    fg = signature_help.config.colors.default_value,
+    italic = true
+  })
+
+  if opts.override then
+    vim.lsp.handlers["textDocument/signatureHelp"] = function(_, result, context, config)
+      config = vim.tbl_deep_extend("force", signature_help.config, config or {})
+      signature_help:display(result)
     end
-  end)
+  end
 end
 
 return M
