@@ -49,7 +49,7 @@ function SignatureHelp.new()
       },
       render_style = {
         separator = true,   -- Show separators between sections
-        compact = true,    -- Compact mode removes empty lines
+        compact = true,     -- Compact mode removes empty lines
         align_icons = true, -- Align icons in separate column
       },
     }
@@ -244,8 +244,8 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
           -1,
           "LspSignatureActiveParameter",
           labels[index],
-          start_pos +1,
-          end_pos +1
+          start_pos + 1,
+          end_pos + 1
         )
 
         -- Extract and display default value if available
@@ -308,161 +308,161 @@ end
 
 -- Safe string operations for parameter docs
 local function safe_string(str)
-    if type(str) ~= "string" then
-        return ""
-    end
-    -- Remove any special characters that might cause display issues
-    return str:gsub("[\n\r\t]", " "):gsub("%s+", " "):trim()
+  if type(str) ~= "string" then
+    return ""
+  end
+  -- Remove any special characters that might cause display issues
+  return str:gsub("[\n\r\t]", " "):gsub("%s+", " "):trim()
 end
 
 -- Safely extract parameter documentation with performance optimization
 local function extract_parameter_doc(signatures, active_param_index)
-    -- Early validation
-    if not signatures or type(signatures) ~= "table" then
-        return nil
-    end
-    
-    -- Get active signature safely
-    local active_sig = signatures.signatures and 
-        signatures.signatures[signatures.activeSignature or 0 + 1]
-    if not active_sig or not active_sig.parameters then
-        return nil
-    end
-    
-    -- Get parameter safely
-    local param = active_sig.parameters[active_param_index + 1]
-    if not param then
-        return nil
-    end
-    
-    -- Extract documentation with type checking
-    local doc = param.documentation
-    if type(doc) == "table" and doc.value then
-        doc = doc.value
-    elseif type(doc) ~= "string" then
-        return nil
-    end
-    
-    return safe_string(doc)
+  -- Early validation
+  if not signatures or type(signatures) ~= "table" then
+    return nil
+  end
+
+  -- Get active signature safely
+  local active_sig = signatures.signatures and
+      signatures.signatures[signatures.activeSignature or 0 + 1]
+  if not active_sig or not active_sig.parameters then
+    return nil
+  end
+
+  -- Get parameter safely
+  local param = active_sig.parameters[active_param_index + 1]
+  if not param then
+    return nil
+  end
+
+  -- Extract documentation with type checking
+  local doc = param.documentation
+  if type(doc) == "table" and doc.value then
+    doc = doc.value
+  elseif type(doc) ~= "string" then
+    return nil
+  end
+
+  return safe_string(doc)
 end
 
 -- Update display content with parameter documentation
 local function update_signature_content(contents, param_doc)
-    if not param_doc or #param_doc == 0 then 
-        return contents 
+  if not param_doc or #param_doc == 0 then
+    return contents
+  end
+
+  local new_contents = {}
+  local param_doc_added = false
+  local in_code_block = false
+
+  -- Track markdown code blocks
+  for i, line in ipairs(contents) do
+    -- Check for code block boundaries
+    if line:match("^```") then
+      in_code_block = not in_code_block
     end
-    
-    local new_contents = {}
-    local param_doc_added = false
-    local in_code_block = false
-    
-    -- Track markdown code blocks
-    for i, line in ipairs(contents) do
-        -- Check for code block boundaries
-        if line:match("^```") then
-            in_code_block = not in_code_block
-        end
-        
-        table.insert(new_contents, line)
-        
-        -- Insert param doc after signature but outside code blocks
-        if not param_doc_added and not in_code_block then
-            if line:match("^%s*[%w_]+%(.*%)") then -- After method signature
-                table.insert(new_contents, "")
-                table.insert(new_contents, "_Active Parameter:_")
-                table.insert(new_contents, param_doc)
-                table.insert(new_contents, "")
-                param_doc_added = true
-            end
-        end
+
+    table.insert(new_contents, line)
+
+    -- Insert param doc after signature but outside code blocks
+    if not param_doc_added and not in_code_block then
+      if line:match("^%s*[%w_]+%(.*%)") then -- After method signature
+        table.insert(new_contents, "")
+        table.insert(new_contents, "_Active Parameter:_")
+        table.insert(new_contents, param_doc)
+        table.insert(new_contents, "")
+        param_doc_added = true
+      end
     end
-    
-    return new_contents
+  end
+
+  return new_contents
 end
 
 -- Integrate with SignatureHelp:display method
 function SignatureHelp:display(result, config)
-    -- Early return if no valid result
-    if not result or not result.signatures or #result.signatures == 0 then
-        self:hide()
-        return
-    end
-    
-    -- Extract parameter documentation
-    local active_param = result.activeParameter or 0
-    local param_doc = extract_parameter_doc(result, active_param)
-    
-    -- Convert to markdown lines (reuse existing conversion)
-    local contents = vim.lsp.util.convert_signature_help_to_markdown_lines(result, vim.bo.filetype)
-    
-    -- Update contents with parameter documentation
-    if param_doc then
-        contents = update_signature_content(contents, param_doc)
-    end
-    
-    -- Cache the current signatures for later use
-    self.current_signatures = result
-    
-    -- Update or create floating window
-    if self.visible and self.win and vim.api.nvim_win_is_valid(self.win) then
-        -- Update existing window
-        pcall(vim.api.nvim_buf_set_lines, self.buf, 0, -1, false, contents)
-        self:apply_treesitter_highlighting()
-        self:set_active_parameter_highlights(active_param, result, {})
-    else
-        -- Create new window
-        self:create_window(contents, config or {})
-    end
-    
-    -- Store active parameter for change detection
-    self.last_active_param = active_param
+  -- Early return if no valid result
+  if not result or not result.signatures or #result.signatures == 0 then
+    self:hide()
+    return
+  end
+
+  -- Extract parameter documentation
+  local active_param = result.activeParameter or 0
+  local param_doc = extract_parameter_doc(result, active_param)
+
+  -- Convert to markdown lines (reuse existing conversion)
+  local contents = vim.lsp.util.convert_signature_help_to_markdown_lines(result, vim.bo.filetype)
+
+  -- Update contents with parameter documentation
+  if param_doc then
+    contents = update_signature_content(contents, param_doc)
+  end
+
+  -- Cache the current signatures for later use
+  self.current_signatures = result
+
+  -- Update or create floating window
+  if self.visible and self.win and vim.api.nvim_win_is_valid(self.win) then
+    -- Update existing window
+    pcall(vim.api.nvim_buf_set_lines, self.buf, 0, -1, false, contents)
+    self:apply_treesitter_highlighting()
+    self:set_active_parameter_highlights(active_param, result, {})
+  else
+    -- Create new window
+    self:create_window(contents, config or {})
+  end
+
+  -- Store active parameter for change detection
+  self.last_active_param = active_param
 end
 
 -- Add parameter change detection to existing update logic
 function SignatureHelp:check_signature_change(result)
-    if not result or not self.last_active_param then
-        return false
-    end
-    
-    local current_param = result.activeParameter or 0
-    if current_param ~= self.last_active_param then
-        -- Parameter changed, update documentation
-        local param_doc = extract_parameter_doc(result, current_param)
-        if param_doc then
-            local contents = vim.api.nvim_buf_get_lines(self.buf, 0, -1, false)
-            contents = update_signature_content(contents, param_doc)
-            pcall(vim.api.nvim_buf_set_lines, self.buf, 0, -1, false, contents)
-            self:apply_treesitter_highlighting()
-            self:set_active_parameter_highlights(current_param, result, {})
-        end
-        self.last_active_param = current_param
-        return true
-    end
+  if not result or not self.last_active_param then
     return false
+  end
+
+  local current_param = result.activeParameter or 0
+  if current_param ~= self.last_active_param then
+    -- Parameter changed, update documentation
+    local param_doc = extract_parameter_doc(result, current_param)
+    if param_doc then
+      local contents = vim.api.nvim_buf_get_lines(self.buf, 0, -1, false)
+      contents = update_signature_content(contents, param_doc)
+      pcall(vim.api.nvim_buf_set_lines, self.buf, 0, -1, false, contents)
+      self:apply_treesitter_highlighting()
+      self:set_active_parameter_highlights(current_param, result, {})
+    end
+    self.last_active_param = current_param
+    return true
+  end
+  return false
 end
 
 -- Update the trigger function to include parameter change detection
 function SignatureHelp:trigger()
-    if not self:check_capability() then
-        return
+  if not self:check_capability() then
+    return
+  end
+
+  local params = vim.lsp.util.make_position_params()
+  vim.lsp.buf_request(0, "textDocument/signatureHelp", params, function(err, result, ctx, config)
+    if err or not result or not result.signatures or #result.signatures == 0 then
+      return
     end
-    
-    local params = vim.lsp.util.make_position_params()
-    vim.lsp.buf_request(0, "textDocument/signatureHelp", params, function(err, result, ctx, config)
-        if err or not result or not result.signatures or #result.signatures == 0 then
-            return
-        end
-        
-        -- Check for parameter changes
-        if self.visible then
-            if self:check_signature_change(result) then
-                return -- Already updated due to parameter change
-            end
-        end
-        
-        -- Display full signature help
-        self:display(result, config)
-    end)
+
+    -- Check for parameter changes
+    if self.visible then
+      if self:check_signature_change(result) then
+        return -- Already updated due to parameter change
+      end
+    end
+
+    -- Display full signature help
+    self:display(result, config)
+  end)
 end
 
 function SignatureHelp:check_capability()
