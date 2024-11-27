@@ -6,13 +6,18 @@ A little (smart maybe) lsp signature helper for neovim.
 
 # Neovim Signature Help Plugin
 
-This Neovim plugin provides a signature help feature for LSP (Language Server Protocol) clients. It displays function signatures and parameter information in a floating window as you type in insert mode or move the cursor in normal mode. The plugin also includes a notification system to display messages with different levels of severity (info, warning, error).
+This Neovim plugin provides a signature help feature for LSP (Language Server Protocol) clients. I can't tell much, just watch the showcases.
 
 # ScreenShots (WIP)
 
-![Screenshot 1](https://github.com/user-attachments/assets/1ba206b1-cde8-41f4-9abd-f8501c6b16e1)
-![Screenshot 2](https://github.com/user-attachments/assets/aba63fe7-a302-4c9d-9f4a-ce28c9c35c03)
-![Screenshot 3](https://github.com/user-attachments/assets/986f0bcb-aecf-4483-8210-83b93cfd72d2)
+![signup_1](https://github.com/user-attachments/assets/e9319dcf-1d9d-4567-a500-a24d38933cb6)
+![signup_2](https://github.com/user-attachments/assets/192b0809-3e66-42bf-9e6e-c1eae744f7b8)
+![signup_3](https://github.com/user-attachments/assets/ca43b7a0-63fa-469c-8db0-df7a49dab483)
+
+![signup_def](https://github.com/user-attachments/assets/6c4d7e09-5baa-418f-a086-e60b4eb4b501)
+
+We have `dock` mode but its under dev for now, please take low expectations:
+![signup_dock](https://github.com/user-attachments/assets/40455737-a952-4a3f-ae1f-fadd7ad68ea2)
 
 ## Features
 
@@ -26,17 +31,18 @@ This Neovim plugin provides a signature help feature for LSP (Language Server Pr
 
 ### Using [lazy.nvim](https://github.com/folke/lazy.nvim)
 
-Add the following to your `init.lua`:
+Add the following to your `init.lua` and use `main` branch always:
 
 ```lua
 require("lazy").setup({
   {
     "Dan7h3x/signup.nvim",
     branch = "main",
-    config = function()
-      require("signup").setup({
-        -- Your configuration options here
-      })
+    opts = {
+          -- Your configuration options here
+    },
+    config = function(_,opts)
+      require("signup").setup(opts)
     end
   }
 })
@@ -62,109 +68,51 @@ EOF
 
 ## Configuration
 
-The plugin comes with a default configuration, but you can customize it according to your preferences. Here are the available options:
+The plugin comes with a default configuration, but you can customize it
+according to your preferences. Here are the available options:
 
 ```lua
-require('signup').setup(
-  {
-    win = nil,
-    buf = nil,
-    timer = nil,
-    visible = false,
-    current_signatures = nil,
-    enabled = false,
-    normal_mode_active = false,
-    config = {
-      silent = false,
-      number = true,
-      icons = {
-        parameter = " ",
-        method = " ",
-        documentation = " ",
-      },
-      colors = {
-        parameter = "#86e1fc",
-        method = "#c099ff",
-        documentation = "#4fd6be",
-      },
-      active_parameter_colors = {
-        bg = "#86e1fc",
-        fg = "#1a1a1a",
-      },
-      border = "solid",
-      winblend = 10,
-    }
+opts = {
+    silent = false,
+    number = true,
+    icons = {
+      parameter = "",
+      method = "󰡱",
+      documentation = "󱪙",
+    },
+    colors = {
+      parameter = "#86e1fc",
+      method = "#c099ff",
+      documentation = "#4fd6be",
+      default_value = "#a80888",
+    },
+    active_parameter_colors = {
+      bg = "#86e1fc",
+      fg = "#1a1a1a",
+    },
+    border = "solid",
+    winblend = 10,
+    auto_close = true,
+    trigger_chars = { "(", "," },
+    max_height = 10,
+    max_width = 40,
+    floating_window_above_cur_line = true,
+    preview_parameters = true,
+    debounce_time = 30,
+    dock_toggle_key = "<Leader>sd",
+    toggle_key = "<C-k>",
+    dock_mode = {
+      enabled = false,
+      position = "bottom",
+      height = 3,
+      padding = 1,
+    },
+    render_style = {
+      separator = true,
+      compact = true,
+      align_icons = true,
+    },
   }
-)
-```
-
-### Options
-
-- **silent**: If `true`, suppresses notifications. Default is `false`.
-- **number**: If `true`, displays the signature index. Default is `true`.
-- **icons**: Custom icons for method, parameter, and documentation.
-- **colors**: Custom colors for method, parameter, and documentation.
-- **border**: Border style for the floating window. Default is `"rounded"`.
-- **winblend**: Transparency level for the floating window. Default is `10`.
-- **override**: If `true`, overrides the default LSP handler for `textDocument/signatureHelp`. Default is `true`.
-
-## Usage
-
-### Toggle Signature Help in Normal Mode
-
-You can toggle the signature help in normal mode using the default keybinding `<C-k>`. You can customize this keybinding in the setup function:
-
-```lua
-require('signup').setup({
-  toggle_key = "<C-k>", -- Customize the toggle key here
-})
-```
-
-### Trigger Signature Help in Insert Mode
-
-The signature help is automatically triggered when you move the cursor or change text in insert mode.
-
-### Notifications
-
-The plugin includes a notification system to display messages with different levels of severity (info, warning, error). These notifications are displayed in a floating window and automatically disappear after a few seconds.
-
-## Highlight Groups
-
-The plugin defines the following highlight groups:
-
-- **LspSignatureActiveParameter**: Highlight for the active parameter.
-- **SignatureHelpMethod**: Highlight for method icons.
-- **SignatureHelpParameter**: Highlight for parameter icons.
-- **SignatureHelpDocumentation**: Highlight for documentation icons.
-- **NotificationInfo**: Highlight for info notifications.
-- **NotificationWarn**: Highlight for warning notifications.
-- **NotificationError**: Highlight for error notifications.
-
-## Examples
-
-### Customizing Icons and Colors
-
-```lua
-require('signup').setup({
-  icons = {
-    parameter = " ",
-    method = " ",
-    documentation = " ",
-  },
-  colors = {
-    parameter = "#ffa500",
-    method = "#8a2be2",
-    documentation = "#008000",
-  },
-})
-```
-
-### Disabling Notifications
-
-```lua
-require('signup').setup({
-  silent = true,
-})
 ```
 
 ## Contributing
@@ -176,3 +124,7 @@ Contributions are welcome! Please feel free to submit a pull request or open an 
 This plugin is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
 
 ---
+
+```
+
+```
