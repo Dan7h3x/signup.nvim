@@ -26,7 +26,7 @@ function SignatureHelp.new()
         parameter = "#86e1fc",
         method = "#c099ff",
         documentation = "#4fd6be",
-        default_value = "#888888",
+        default_value = "#a80888",
       },
       active_parameter_colors = {
         bg = "#86e1fc",
@@ -49,7 +49,7 @@ function SignatureHelp.new()
       },
       render_style = {
         separator = true,   -- Show separators between sections
-        compact = false,    -- Compact mode removes empty lines
+        compact = true,    -- Compact mode removes empty lines
         align_icons = true, -- Align icons in separate column
       },
     }
@@ -148,7 +148,7 @@ function SignatureHelp:create_float_window(contents)
 
   local win_config = {
     relative = "cursor",
-    row = row_offset,
+    row = row_offset + 1,
     col = 0,
     width = max_width,
     height = max_height,
@@ -257,8 +257,8 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
           -1,
           "LspSignatureActiveParameter",
           labels[index],
-          start_pos +5,
-          end_pos +5
+          start_pos +1,
+          end_pos +1
         )
 
         -- Extract and display default value if available
