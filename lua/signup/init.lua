@@ -406,67 +406,23 @@ function SignatureHelp:toggle_normal_mode()
   end
 end
 
-function SignatureHelp:setup_autocmds()
-  local group = api.nvim_create_augroup("LspSignatureHelp", { clear = true })
-
-  local function debounced_trigger()
-    if self.timer then
-      vim.fn.timer_stop(self.timer)
+function SignatureHelp:setup_autocmds(bufnr, callbacks)
+    local group = vim.api.nvim_create_augroup('YourPlugin', { clear = true })
+    
+    local events = {
+        {'InsertEnter', callbacks.on_insert_enter},
+        {'InsertLeave', callbacks.on_insert_leave},
+        {'BufLeave,BufWinLeave', callbacks.on_buf_leave},
+        {'CursorMoved,CursorMovedI', debounced_update(callbacks.on_cursor_move, 100)},
+    }
+    
+    for _, event in ipairs(events) do
+        vim.api.nvim_create_autocmd(event[1], {
+            group = group,
+            buffer = bufnr,
+            callback = event[2],
+        })
     end
-    self.timer = vim.fn.timer_start(30, function()
-      self:trigger()
-    end)
-  end
-
-  api.nvim_create_autocmd({ "CursorMovedI", "TextChangedI" }, {
-    group = group,
-    callback = function()
-      local cmp_visible = require("cmp").visible()
-      if cmp_visible then
-        self:hide()
-      elseif vim.fn.pumvisible() == 0 then
-        debounced_trigger()
-      else
-        self:hide()
-      end
-    end
-  })
-
-  api.nvim_create_autocmd({ "CursorMoved" }, {
-    group = group,
-    callback = function()
-      if self.normal_mode_active then
-        debounced_trigger()
-      end
-    end
-  })
-
-  api.nvim_create_autocmd({ "InsertLeave", "BufHidden", "BufLeave" }, {
-    group = group,
-    callback = function()
-      self:hide()
-      self.normal_mode_active = false
-    end
-  })
-
-  api.nvim_create_autocmd("LspAttach", {
-    group = group,
-    callback = function()
-      vim.defer_fn(function()
-        self:check_capability()
-      end, 100)
-    end
-  })
-
-  api.nvim_create_autocmd("ColorScheme", {
-    group = group,
-    callback = function()
-      if self.visible then
-        self:apply_treesitter_highlighting()
-        self:set_active_parameter_highlights(self.current_signatures.activeParameter, self.current_signatures, {})
-      end
-    end
-  })
 end
 
 function SignatureHelp:create_dock_window()
@@ -560,5 +516,124 @@ function M.setup(opts)
     end
   end
 end
+
+local function create_floating_window(contents, opts)
+    opts = opts or {}
+    local width = opts.width or 50
+    local height = opts.height or 10
+    
+    -- Calculate position
+    local row = vim.api.nvim_win_get_cursor(0)[1] - 1
+    local col = vim.api.nvim_win_get_cursor(0)[2]
+    
+    -- Create buffer
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, true, contents)
+    
+    -- Window options
+    local win_opts = {
+        relative = 'cursor',
+        row = 1,
+        col = 0,
+        width = width,
+        height = height,
+        style = 'minimal',
+        border = self.config.border,
+    }
+    
+    -- Create window
+    local win = vim.api.nvim_open_win(buf, false, win_opts)
+    
+    return buf, win
+end
+
+-- Centralize state management
+local state = {
+    windows = {},
+    buffers = {},
+    cleanup_timer = nil,
+}
+
+-- Update cleanup function to use centralized state
+local function cleanup(force)
+    if state.cleanup_timer then
+        state.cleanup_timer:stop()
+        state.cleanup_timer = nil
+    end
+    
+    -- Clear virtual text
+    vim.api.nvim_buf_clear_namespace(0, ns.virtual_text, 0, -1)
+    
+    -- Close all floating windows
+    for win, _ in pairs(state.windows) do
+        if vim.api.nvim_win_is_valid(win) then
+            vim.api.nvim_win_close(win, true)
+        end
+    end
+    
+    -- Clear state
+    if force then
+        state.windows = {}
+        state.buffers = {}
+    end
+end
+
+-- Consolidate namespace creation
+local ns = {
+    virtual_text = vim.api.nvim_create_namespace('signup'),
+}
+
+-- Update show_virtual_hint to use consolidated namespace
+local function show_virtual_hint(hint, offset)
+    local line = vim.api.nvim_win_get_cursor(0)[1] - 1
+    
+    -- Clear existing virtual text
+    vim.api.nvim_buf_clear_namespace(0, ns.virtual_text, 0, -1)
+    
+    if hint and hint ~= '' then
+        vim.api.nvim_buf_set_extmark(0, ns.virtual_text, line, 0, {
+            virt_text = {{ hint, 'YourHintHighlight' }},
+            virt_text_pos = 'eol',
+        })
+    end
+end
+
+local default_config = {
+    enabled = true,
+    virtual_text = true,
+    floating_window = true,
+    max_height = 12,
+    max_width = 40,
+    wrap = true,
+    border = self.config.border,
+    hint_prefix = '🔍 ',
+}
+
+local function setup(user_config)
+    local config = vim.tbl_deep_extend('force', default_config, user_config or {})
+    return config
+end
+
+-- Add debounced window updates
+local function debounced_update(fn, ms)
+    local timer = nil
+    return function(...)
+        local args = {...}
+        if timer then
+            timer:stop()
+            timer = nil
+        end
+        
+        timer = vim.defer_fn(function()
+            if timer then
+                fn(unpack(args))
+                timer = nil
+            end
+        end, ms or 100)
+    end
+end
+
+-- Use debounced updates for virtual hints
+local update_virtual_hint = debounced_update(show_virtual_hint, 50)
 
 return M
