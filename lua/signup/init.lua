@@ -54,7 +54,9 @@ function SignatureHelp.new()
       enabled = false,
       position = "bottom",
       height = 3,
+      width = 40,
       padding = 1,
+      auto_adjust = true,
     },
     render_style = {
       separator = true,
@@ -536,84 +538,57 @@ function SignatureHelp:setup_autocmds()
 end
 
 function SignatureHelp:create_dock_window()
-  -- Store current window and buffer
+  -- Cache the current window and buffer
   local current_win = api.nvim_get_current_win()
   local current_buf = api.nvim_get_current_buf()
 
-  -- Update dock window ID for current buffer
-  self.dock_win_id = "signature_help_dock_" .. current_buf
+  -- Update dock window ID
+  self.dock_win_id = string.format("signature_help_dock_%d", current_buf)
 
-  if not self.dock_win or not api.nvim_win_is_valid(self.dock_win) then
-    -- Create dock buffer if needed
-    if not self.dock_buf or not api.nvim_buf_is_valid(self.dock_buf) then
-      self.dock_buf = api.nvim_create_buf(false, true)
-      api.nvim_buf_set_option(self.dock_buf, "buftype", "nofile")
-      api.nvim_buf_set_option(self.dock_buf, "bufhidden", "hide")
-      api.nvim_buf_set_option(self.dock_buf, "modifiable", false)
-      api.nvim_buf_set_option(self.dock_buf, "filetype", "markdown")
-
-      -- Set buffer name with ID for easier tracking
-      api.nvim_buf_set_name(self.dock_buf, self.dock_win_id)
-    end
-
-    -- Calculate dock position and dimensions
-    local win_height = api.nvim_win_get_height(current_win)
-    local win_width = api.nvim_win_get_width(current_win)
-    local dock_height = math.min(self.config.dock_mode.height, math.floor(win_height * 0.3))
-    local padding = self.config.dock_mode.padding
-    local dock_width = win_width - (padding * 2)
-
-    local row = self.config.dock_mode.position == "bottom"
-        and win_height - dock_height - padding
-        or padding
-
-    -- Create dock window with enhanced config
-    self.dock_win = api.nvim_open_win(self.dock_buf, false, {
-      relative = "win",
-      win = current_win,
-      width = dock_width,
-      height = dock_height,
-      row = row,
-      col = padding,
-      style = "minimal",
-      border = self.config.border,
-      zindex = 45,
-      focusable = false, -- Make window non-focusable to prevent focus issues
-    })
-
-    -- Apply window options
-    local win_opts = {
-      wrap = true,
-      winblend = self.config.winblend,
-      foldenable = false,
-      cursorline = false,
-      winhighlight = "Normal:SignatureHelpDock,FloatBorder:SignatureHelpBorder",
-      signcolumn = "no",
+  -- Reuse existing buffer if possible
+  if not self.dock_buf or not api.nvim_buf_is_valid(self.dock_buf) then
+    self.dock_buf = api.nvim_create_buf(false, true)
+    
+    -- Set buffer options efficiently
+    local buf_opts = {
+      buftype = "nofile",
+      bufhidden = "hide",
+      modifiable = false,
+      filetype = "markdown",
+      swapfile = false,
     }
-
-    for opt, value in pairs(win_opts) do
-      api.nvim_win_set_option(self.dock_win, opt, value)
+    
+    for opt, val in pairs(buf_opts) do
+      api.nvim_buf_set_option(self.dock_buf, opt, val)
     end
-
-    -- Set up dock window keymaps
-    local dock_buf_keymaps = {
-      ["q"] = function() self:hide() end,
-      ["<Esc>"] = function() self:hide() end,
-      ["<C-c>"] = function() self:hide() end,
-      ["<C-n>"] = function() self:next_signature() end,
-      ["<C-p>"] = function() self:prev_signature() end,
-    }
-
-    for key, func in pairs(dock_buf_keymaps) do
-      vim.keymap.set("n", key, func, { buffer = self.dock_buf, silent = true, nowait = true })
-    end
-
-    -- Set window ID as a window variable
-    api.nvim_win_set_var(self.dock_win, "signature_help_id", self.dock_win_id)
+    
+    api.nvim_buf_set_name(self.dock_buf, self.dock_win_id)
   end
 
-  -- Ensure focus returns to original window
-  api.nvim_set_current_win(current_win)
+  -- Calculate position and create/update window
+  local dock_config = self:calculate_dock_position()
+  
+  if not self.dock_win or not api.nvim_win_is_valid(self.dock_win) then
+    self.dock_win = api.nvim_open_win(self.dock_buf, false, dock_config)
+  else
+    api.nvim_win_set_config(self.dock_win, dock_config)
+  end
+
+  -- Apply window options efficiently
+  local win_opts = {
+    wrap = true,
+    winblend = self.config.winblend,
+    foldenable = false,
+    cursorline = false,
+    winhighlight = "Normal:SignatureHelpDock,FloatBorder:SignatureHelpBorder",
+    signcolumn = "no",
+    number = false,
+    relativenumber = false,
+  }
+
+  for opt, val in pairs(win_opts) do
+    api.nvim_win_set_option(self.dock_win, opt, val)
+  end
 
   return self.dock_win, self.dock_buf
 end
@@ -722,6 +697,64 @@ function SignatureHelp:setup_keymaps()
       self:toggle_dock_mode()
     end, { noremap = true, silent = true, desc = "Toggle between dock and float mode" })
   end
+end
+
+function SignatureHelp:calculate_dock_position()
+  local current_win = api.nvim_get_current_win()
+  local win_height = api.nvim_win_get_height(current_win)
+  local win_width = api.nvim_win_get_width(current_win)
+  local padding = self.config.dock_mode.padding
+  
+  local position = self.config.dock_mode.position
+  local dock_height = self.config.dock_mode.height
+  local dock_width = position == "right" 
+    and self.config.dock_mode.width 
+    or (win_width - (padding * 2))
+
+  -- Auto-adjust size if enabled
+  if self.config.dock_mode.auto_adjust and self.current_signatures then
+    local content_height = #self.current_signatures
+    dock_height = math.min(math.max(content_height, 3), 10)
+  end
+
+  local config = {
+    width = dock_width,
+    height = dock_height,
+    row = padding,
+    col = padding,
+    relative = "win",
+    style = "minimal",
+  }
+
+  if position == "bottom" then
+    config.row = win_height - dock_height - padding
+  elseif position == "right" then
+    config.col = win_width - dock_width - padding
+    config.row = math.floor((win_height - dock_height) / 2)
+  end
+
+  return config
+end
+
+function SignatureHelp:update_dock_active_parameter(parameter_index)
+  if not self.dock_buf or not api.nvim_buf_is_valid(self.dock_buf) then return end
+  
+  -- Clear existing highlights
+  api.nvim_buf_clear_namespace(self.dock_buf, -1, 0, -1)
+  
+  -- Get current signature
+  local signature = self.current_signatures[self.current_signature_idx or 1]
+  if not signature then return end
+  
+  -- Update active parameter
+  signature.activeParameter = parameter_index
+  
+  -- Refresh display with new active parameter
+  self:display({
+    signatures = self.current_signatures,
+    activeParameter = parameter_index,
+    activeSignature = self.current_signature_idx and (self.current_signature_idx - 1) or 0
+  })
 end
 
 function M.setup(opts)
