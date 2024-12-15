@@ -428,7 +428,17 @@ end
 function SignatureHelp:toggle_normal_mode()
   self.normal_mode_active = not self.normal_mode_active
   if self.normal_mode_active then
-    self:trigger()
+    -- Close dock window if it exists when entering normal mode
+    if self.config.dock_mode.enabled then
+      self:close_dock_window()
+      -- Temporarily disable dock mode
+      local was_dock_enabled = self.config.dock_mode.enabled
+      self.config.dock_mode.enabled = false
+      self:trigger()
+      self.config.dock_mode.enabled = was_dock_enabled
+    else
+      self:trigger()
+    end
   else
     self:hide()
   end
@@ -535,6 +545,9 @@ function SignatureHelp:create_dock_window()
   -- Calculate position and create/update window
   local dock_config = self:calculate_dock_position()
   
+  -- Use dock-specific border
+  dock_config.border = self.config.dock_border
+
   if not self.dock_win or not api.nvim_win_is_valid(self.dock_win) then
     self.dock_win = api.nvim_open_win(self.dock_buf, false, dock_config)
   else
@@ -743,27 +756,42 @@ function SignatureHelp:set_dock_parameter_highlights(active_parameter, signature
   local signature = signatures[self.current_signature_idx or 1]
   if not signature then return end
 
-  -- Convert signature to markdown to get parameter ranges
-  local _, param_range = vim.lsp.util.convert_signature_help_to_markdown_lines(
-    {
-      activeSignature = (self.current_signature_idx or 1) - 1,
-      activeParameter = active_parameter,
-      signatures = { signature }
-    },
-    vim.bo.filetype,
-    self.config.trigger_chars
-  )
+  -- Get the parameters and their ranges
+  local params = signature.parameters or {}
+  if active_parameter and params[active_parameter + 1] then
+    local param = params[active_parameter + 1]
+    local label = type(param.label) == "table" and param.label or {param.label}
+    
+    -- Get the first line of the buffer
+    local lines = api.nvim_buf_get_lines(self.dock_buf, 0, 1, false)
+    if #lines == 0 then return end
+    
+    local line = lines[1]
+    local start_pos, end_pos
+    
+    if type(label) == "table" then
+      start_pos = label[1]
+      end_pos = label[2]
+    else
+      -- Find the parameter in the line
+      local escaped_label = vim.pesc(label)
+      start_pos = line:find(escaped_label)
+      if start_pos then
+        end_pos = start_pos + #label - 1
+      end
+    end
 
-  -- Apply highlight if we got a valid range
-  if param_range then
-    api.nvim_buf_add_highlight(
-      self.dock_buf,
-      -1,
-      "LspSignatureActiveParameter",
-      0, -- First line in dock mode
-      param_range[1],
-      param_range[2]
-    )
+    -- Apply highlight if we found the parameter
+    if start_pos and end_pos then
+      api.nvim_buf_add_highlight(
+        self.dock_buf,
+        -1,
+        "LspSignatureActiveParameter",
+        0,  -- Line number (first line)
+        start_pos - 1,
+        end_pos
+      )
+    end
   end
 
   -- Add icon highlights
