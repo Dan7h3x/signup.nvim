@@ -462,7 +462,7 @@ function SignatureHelp:trigger()
 		return
 	end
 
-	local params = vim.lsp.util.make_position_params(0, "utf-8")
+	local params = vim.lsp.util.make_position_params(0, vim.lsp.get_client_by_id(0).offset_encoding or "utf-16")
 	local detected_param = self:detect_active_parameter()
 	if detected_param then
 		params.context = {
