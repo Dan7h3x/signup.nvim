@@ -463,14 +463,8 @@ function SignatureHelp:trigger()
 	end
 	local clients = vim.lsp.get_clients({ bufnr = 0 })
 
-	local params = vim.lsp.util.make_position_params(0, clients[1] and clients[1].offset_encoding or "utf-8")
-	local detected_param = self:detect_active_parameter()
-	if detected_param then
-		params.context = {
-			triggerKind = 1,
-			activeParameter = detected_param,
-		}
-	end
+	local params = vim.lsp.util.make_position_params(0, clients[1].offset_encoding)
+
 	vim.lsp.buf_request(0, "textDocument/signatureHelp", params, function(err, result, _)
 		if err then
 			if not self.config.silent then
