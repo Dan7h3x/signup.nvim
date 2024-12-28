@@ -461,8 +461,9 @@ function SignatureHelp:trigger()
 		self:hide()
 		return
 	end
+	local clients = vim.lsp.get_clients({ bufnr = 0 })
 
-	local params = vim.lsp.util.make_position_params(0, vim.lsp.get_client_by_id(0).offset_encoding or "utf-16")
+	local params = vim.lsp.util.make_position_params(0, clients[1] and clients[1].offset_encoding or "utf-8")
 	local detected_param = self:detect_active_parameter()
 	if detected_param then
 		params.context = {
