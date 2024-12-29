@@ -484,16 +484,18 @@ function SignatureHelp:trigger()
                 return
             end
 
-            -- Check for context changes
+            -- Check for context changes with safe comparisons
             if ctx.bufnr ~= current_state.bufnr then
                 return
             end
 
             local new_line = vim.api.nvim_get_current_line()
             local new_cursor = vim.api.nvim_win_get_cursor(0)
+            
+            -- Safe cursor position comparison
             if new_line ~= current_state.line or 
                new_cursor[1] ~= current_state.row or 
-               math.abs(new_cursor[2] - current_state.col) > 1 then
+               (new_cursor[2] and current_state.col and math.abs(new_cursor[2] - current_state.col) > 1) then
                 return
             end
 
@@ -513,26 +515,26 @@ function SignatureHelp:trigger()
                 return
             end
 
-            -- Process signature information
+            -- Process signature information with nil checks
             local active_sig_idx = result.activeSignature or 0
             local sig = result.signatures[active_sig_idx + 1]
             
             if sig then
-                -- Enhanced caching with timestamp
+                -- Enhanced caching with timestamp and nil checks
                 self.parameter_cache[sig.label] = {
                     count = (sig.parameters and #sig.parameters) or 0,
-                    active = result.activeParameter,
+                    active = result.activeParameter or 0,  -- Ensure default value
                     timestamp = vim.loop.now(),
                     signature = sig,
                     bufnr = ctx.bufnr
                 }
 
-                -- Manage cache size
-                if vim.tbl_count(self.parameter_cache) > self.config.performance.cache_size then
+                -- Manage cache size with safe iteration
+                if vim.tbl_count(self.parameter_cache) > (self.config.performance.cache_size or 10) then
                     local oldest_time = math.huge
                     local oldest_key = nil
                     for k, v in pairs(self.parameter_cache) do
-                        if v.timestamp < oldest_time then
+                        if v.timestamp and v.timestamp < oldest_time then
                             oldest_time = v.timestamp
                             oldest_key = k
                         end
@@ -543,16 +545,19 @@ function SignatureHelp:trigger()
                 end
             end
 
-            -- Update state
-            self.last_active_parameter = result.activeParameter
+            -- Update state with safe assignment
+            self.last_active_parameter = result.activeParameter or 0
 
-            -- Display with debouncing
-            if self.config.performance.debounce_time > 0 then
+            -- Display with debouncing and safe access
+            local debounce_time = self.config.performance and 
+                                self.config.performance.debounce_time or 0
+
+            if debounce_time > 0 then
                 if self.display_timer then
-                    vim.fn.timer_stop(self.display_timer)
+                    pcall(vim.fn.timer_stop, self.display_timer)
                 end
                 self.display_timer = vim.fn.timer_start(
-                    self.config.performance.debounce_time,
+                    debounce_time,
                     function()
                         self:display(result)
                     end
@@ -654,52 +659,55 @@ function SignatureHelp:setup_autocmds()
     })
 end
 
--- Display and Highlighting Methods
+-- Update display function to handle nil values
 function SignatureHelp:display(result)
     if not result or not result.signatures or #result.signatures == 0 then
         self:hide()
         return
     end
 
+    -- Safe signature comparison
     if self.visible and self.current_signatures then
         local current_sig = self.current_signatures[self.current_signature_idx or 1]
         local new_sig = result.signatures[result.activeSignature or 0]
+        local current_param = self.last_active_parameter or 0
+        local new_param = result.activeParameter or 0
 
-        if
-            current_sig
-            and new_sig
-            and current_sig.label == new_sig.label
-            and self.last_active_parameter == result.activeParameter
-        then
+        if current_sig and new_sig and 
+           current_sig.label == new_sig.label and 
+           current_param == new_param then
             return
         end
     end
 
-    -- Store current signatures for navigation
+    -- Store current signatures with safe values
     self.current_signatures = result.signatures
-    self.current_active_parameter = result.activeParameter
-    self.current_signature_idx = result.activeSignature and (result.activeSignature + 1) or 1
+    self.current_active_parameter = result.activeParameter or 0
+    self.current_signature_idx = (result.activeSignature and result.activeSignature + 1) or 1
 
     -- Convert to markdown and get labels
     local contents, labels = self:format_signature_list(result.signatures)
 
     if #contents > 0 then
-        if self.config.behavior.dock_mode then
+        if self.config.behavior and self.config.behavior.dock_mode then
             local win, buf = self:create_dock_window()
             if win and buf then
-                -- Set content with error handling
                 pcall(api.nvim_buf_set_lines, buf, 0, -1, false, contents)
-                -- Apply markdown styling safely
                 pcall(vim.lsp.util.stylize_markdown, buf, contents, {})
-                -- Set parameter highlights
-                self:set_dock_parameter_highlights(result.activeParameter, result.signatures)
+                self:set_dock_parameter_highlights(
+                    result.activeParameter or 0,
+                    result.signatures
+                )
                 self.visible = true
             end
         else
-            -- Use existing floating window logic
             local win, buf = self:create_window(contents)
             if win and buf then
-                self:set_active_parameter_highlights(result.activeParameter, result.signatures, labels)
+                self:set_active_parameter_highlights(
+                    result.activeParameter or 0,
+                    result.signatures,
+                    labels
+                )
             end
         end
     end
