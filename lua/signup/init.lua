@@ -28,6 +28,13 @@ local default_config = {
         text = nil,            -- Text color
         type = "#c099ff",      -- Type signature color
         method = "#4fd6be",    -- Method name color
+        documentation = "#4fd6be", -- Documentation color
+        default_value = "#a8a8a8", -- Default value color
+    },
+	-- Active parameter highlighting
+    active_parameter_colors = {
+        fg = "#1a1a1a",        -- Active parameter foreground color
+        bg = "#86e1fc",        -- Active parameter background color
     },
 
     -- Icons and formatting
@@ -1109,6 +1116,13 @@ end
 
 function SignatureHelp:setup_highlights()
     local colors = self.config.colors
+	local active_colors = self.config.active_parameter_colors
+
+    -- Ensure we have default values if not provided
+    active_colors = active_colors or {
+        fg = "#1a1a1a",
+        bg = "#86e1fc"
+    }
     local highlights = {
         SignatureHelpDock = { link = "NormalFloat" },
         SignatureHelpBorder = { link = "FloatBorder" },
@@ -1117,8 +1131,8 @@ function SignatureHelp:setup_highlights()
         SignatureHelpDocumentation = { fg = colors.documentation },
         SignatureHelpDefaultValue = { fg = colors.default_value, italic = true },
         LspSignatureActiveParameter = {
-            fg = self.config.active_parameter_colors.fg,
-            bg = self.config.active_parameter_colors.bg,
+            fg = active_colors.fg,
+            bg = active_colors.bg,
         },
     }
 
@@ -1306,6 +1320,56 @@ function M.setup(opts)
     M._instance = instance
     
     return instance
+end
+
+
+function M.update(opts)
+    if not M._instance then
+        return M.setup(opts)
+    end
+
+    -- Merge new options with existing config
+    local instance = M._instance
+    local function update_config(base, new)
+        for k, v in pairs(new) do
+            if type(v) == "table" and type(base[k]) == "table" then
+                update_config(base[k], v)
+            else
+                base[k] = v
+            end
+        end
+    end
+
+    -- Safely update configuration
+    pcall(update_config, instance.config, opts or {})
+
+    -- Refresh highlights and windows
+    pcall(function()
+        instance:setup_highlights()
+        if instance.visible then
+            -- Refresh current display
+            instance:display({
+                signatures = instance.current_signatures,
+                activeParameter = instance.current_active_parameter,
+                activeSignature = instance.current_signature_idx and (instance.current_signature_idx - 1) or 0,
+            })
+        end
+    end)
+
+    return instance
+end
+
+-- Add reload method for plugin reloading
+function M.reload()
+    if M._instance then
+        M._instance:cleanup()
+    end
+    
+    M._initialized = false
+    M._instance = nil
+    
+    package.loaded['signup'] = nil
+    return require('signup').setup()
 end
 
 -- Add version and metadata
