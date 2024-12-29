@@ -659,7 +659,6 @@ function SignatureHelp:setup_autocmds()
     })
 end
 
--- Update display function to handle nil values
 function SignatureHelp:display(result)
     if not result or not result.signatures or #result.signatures == 0 then
         self:hide()
@@ -685,16 +684,21 @@ function SignatureHelp:display(result)
     self.current_active_parameter = result.activeParameter or 0
     self.current_signature_idx = (result.activeSignature and result.activeSignature + 1) or 1
 
-    -- Convert to markdown and get labels
-    local contents, labels = self:format_signature_list(result.signatures)
+    -- Safely convert to markdown and get labels
+    local ok, contents, labels = pcall(self.format_signature_list, self, result.signatures)
+    if not ok or not contents then
+        vim.notify("Error formatting signature: " .. (contents or "unknown error"), vim.log.levels.ERROR)
+        return
+    end
 
     if #contents > 0 then
         if self.config.behavior and self.config.behavior.dock_mode then
             local win, buf = self:create_dock_window()
             if win and buf then
+                -- Set content with error handling
                 pcall(api.nvim_buf_set_lines, buf, 0, -1, false, contents)
                 pcall(vim.lsp.util.stylize_markdown, buf, contents, {})
-                self:set_dock_parameter_highlights(
+                pcall(self.set_dock_parameter_highlights, self,
                     result.activeParameter or 0,
                     result.signatures
                 )
@@ -703,7 +707,7 @@ function SignatureHelp:display(result)
         else
             local win, buf = self:create_window(contents)
             if win and buf then
-                self:set_active_parameter_highlights(
+                pcall(self.set_active_parameter_highlights, self,
                     result.activeParameter or 0,
                     result.signatures,
                     labels
@@ -713,42 +717,73 @@ function SignatureHelp:display(result)
     end
 end
 
-function SignatureHelp:format_signature_list(signatures)
-    local contents = {}
-    local labels = {}
-    local show_index = #signatures > 1
-
-    for idx, signature in ipairs(signatures) do
-        table.insert(labels, #contents + 1)
-
-        -- Format the signature line
-        local sig_line = self:format_signature_line(signature, idx, show_index)
-        table.insert(contents, sig_line)
-
-        -- Add documentation if available
-        if signature.documentation then
-            local doc = type(signature.documentation) == "string" 
-                and signature.documentation 
-                or signature.documentation.value
-
-            if doc and doc:match("%S") then
-                -- Add separator
-                table.insert(contents, string.rep("─", 40))
-                -- Add documentation with icon
-                table.insert(contents, self.config.icons.method .. " Documentation:")
-                -- Split and add documentation lines
-                for _, line in ipairs(vim.split(doc, "\n")) do
-                    if line:match("%S") then
-                        table.insert(contents, "  " .. line)
-                    end
+function SignatureHelp:safe_concat(...)
+    local result = {}
+    for i = 1, select("#", ...) do
+        local value = select(i, ...)
+        if type(value) == "string" then
+            table.insert(result, value)
+        elseif type(value) == "table" then
+            for _, v in ipairs(value) do
+                if type(v) == "string" then
+                    table.insert(result, v)
                 end
             end
         end
+    end
+    return table.concat(result)
+end
 
-        -- Add separator between signatures
-        if idx < #signatures then
-            table.insert(contents, string.rep("═", 40))
+function SignatureHelp:format_signature_list(signatures)
+    if not signatures or type(signatures) ~= "table" then
+        return {}, {}
+    end
+
+    local contents = {}
+    local labels = {}
+
+    local show_index = #signatures > 1
+
+    for idx, signature in ipairs(signatures) do
+        if type(signature) == "table" then
+            table.insert(labels, #contents + 1)
+
+            -- Safely format the signature line
+            local ok, sig_line = pcall(self.format_signature_line, self, signature, idx, show_index)
+            if ok and sig_line then
+                table.insert(contents, sig_line)
+
+                -- Add documentation if available
+                if signature.documentation then
+                    local doc = type(signature.documentation) == "string" 
+                        and signature.documentation 
+                        or (signature.documentation.value or "")
+
+                    if doc and doc:match("%S") then
+                        -- Add separator
+                        table.insert(contents, string.rep("─", 40))
+                        -- Add documentation with icon
+                        table.insert(contents, self.config.icons.method .. " Documentation:")
+                        -- Split and add documentation lines
+                        for _, line in ipairs(vim.split(doc, "\n")) do
+                            if line:match("%S") then
+                                table.insert(contents, "  " .. line)
+                            end
+                        end
+                    end
+                end
+
+                -- Add separator between signatures
+                if idx < #signatures then
+                    table.insert(contents, string.rep("═", 40))
+                end
+            end
         end
+    end
+
+    -- Remove trailing empty lines
+    while #contents > 0 and not contents[#contents]:match("%S") do
+        table.remove(contents)
     end
 
     return contents, labels
@@ -763,29 +798,46 @@ function SignatureHelp:format_signature_line(signature, index, show_index)
         table.insert(parts, self.config.icons.method .. method_name)
     end
 
-    -- Format parameters
+    -- Format parameters safely
     local param_parts = {}
     local params = signature.parameters or {}
     local active_param = signature.activeParameter or 0
 
     for i, param in ipairs(params) do
-        local param_text = param.label
+        -- Handle different parameter label formats
+        local param_text = ""
+        if type(param.label) == "string" then
+            param_text = param.label
+        elseif type(param.label) == "table" then
+            -- Handle array-style label [start, end]
+            if param.label[1] and param.label[2] then
+                param_text = signature.label:sub(param.label[1] + 1, param.label[2])
+            end
+        end
+
+        -- Add parameter formatting
         if i == active_param + 1 then
             param_text = string.format("<%s>", param_text)
         end
-        table.insert(param_parts, param_text)
+
+        if param_text ~= "" then
+            table.insert(param_parts, param_text)
+        end
     end
 
-    -- Combine all parts
-    local sig_line = table.concat(parts, " ") .. "(" .. table.concat(param_parts, ", ") .. ")"
+    -- Safely combine parts
+    local method_part = table.concat(parts, " ")
+    local params_part = table.concat(param_parts, ", ")
+    local sig_line = method_part .. "(" .. params_part .. ")"
     
     -- Add index if showing multiple signatures
     if show_index then
-        sig_line = sig_line .. string.format(" (%d/%d)", index, #signature.parameters or 0)
+        sig_line = sig_line .. string.format(" (%d/%d)", index, #params)
     end
 
     return sig_line
 end
+
 
 -- Dock Mode Implementation
 function SignatureHelp:create_dock_window()
