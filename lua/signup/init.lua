@@ -452,86 +452,6 @@ function SignatureHelp:apply_treesitter_highlighting()
 end
 
 
--- function SignatureHelp:trigger()
---     -- Early return if not enabled
---     if not self.enabled then
---         return
---     end
-
---     -- Check for cmp visibility
---     local cmp_ok, cmp = pcall(require, "cmp")
---     local cmp_visible = cmp_ok and cmp.visible() or false
---     self.cmp_visible_cache = cmp_visible
-
---     if cmp_visible and self.config.avoid_cmp_overlap then
---         self:hide()
---         return
---     end
-
---     -- Get active clients
---     local clients = vim.lsp.get_clients()
---     if not clients or #clients == 0 then
---         return
---     end
-
---     -- Find a client that supports signature help
---     local signature_client
---     for _, client in ipairs(clients) do
---         if client.server_capabilities.signatureHelpProvider then
---             signature_client = client
---             break
---         end
---     end
-
---     if not signature_client then
---         return
---     end
-
---     -- Prepare parameters
---     local params = vim.lsp.util.make_position_params(0, signature_client.offset_encoding)
---     local detected_param = self:detect_active_parameter()
-    
---     if detected_param then
---         params.context = {
---             triggerKind = vim.lsp.protocol.SignatureHelpTriggerKind.ContentChange,
---             activeParameter = detected_param,
---         }
---     end
-
---     -- Make the request
---     vim.lsp.buf_request(0, "textDocument/signatureHelp", params, function(err, result, ctx)
---         -- Check if the request is still valid
---         if not ctx.bufnr or not vim.api.nvim_buf_is_valid(ctx.bufnr) then
---             return
---         end
-
---         if err then
---             if not self.config.silent then
---                 vim.notify("Signature help error: " .. tostring(err), vim.log.levels.WARN)
---             end
---             return
---         end
-
---         -- Handle empty or invalid results
---         if not result or not result.signatures or vim.tbl_isempty(result.signatures) then
---             self:hide()
---             return
---         end
-
---         -- Update state and cache
---         self.last_active_parameter = result.activeParameter
---         local sig = result.signatures[result.activeSignature or 0]
---         if sig then
---             self.parameter_cache[sig.label] = {
---                 count = (sig.parameters and #sig.parameters) or 0,
---                 active = result.activeParameter,
---             }
---         end
-
---         -- Display the result
---         self:display(result)
---     end)
--- end
 function SignatureHelp:trigger()
     -- Early return if not enabled
     if not self.enabled then
@@ -549,14 +469,24 @@ function SignatureHelp:trigger()
             self:hide()
             return
         elseif self.config.dock_mode.enabled then
-            -- Allow dock mode to coexist with cmp if configured
             self.config.dock_mode.position = "bottom"
         end
     end
 
-    -- Get active clients with better filtering
+    -- Get current buffer and position
+    local bufnr = vim.api.nvim_get_current_buf()
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row, col = cursor[1], cursor[2]
+
+    -- Get buffer URI
+    local uri = vim.uri_from_bufnr(bufnr)
+    if not uri then
+        return
+    end
+
+    -- Get active clients with capability checking
     local clients = vim.lsp.get_clients({
-        bufnr = vim.api.nvim_get_current_buf(),
+        bufnr = bufnr,
         method = "textDocument/signatureHelp"
     })
     
@@ -567,7 +497,7 @@ function SignatureHelp:trigger()
         return
     end
 
-    -- Enhanced client selection with capability checking
+    -- Find best client with signature help support
     local signature_client
     for _, client in ipairs(clients) do
         if client.server_capabilities.signatureHelpProvider then
@@ -586,16 +516,14 @@ function SignatureHelp:trigger()
         return
     end
 
-    -- Get current context
-    local cursor_pos = vim.api.nvim_win_get_cursor(0)
+    -- Get current line context
     local line = vim.api.nvim_get_current_line()
-    local line_to_cursor = line:sub(1, cursor_pos[2])
+    local line_to_cursor = line:sub(1, col)
     local trigger_char = line_to_cursor:sub(-1)
 
-    -- Check if we're in a valid trigger context
+    -- Check trigger character validity
     local valid_trigger = false
     local trigger_chars = signature_client.server_capabilities.signatureHelpProvider.triggerCharacters or {}
-    
     for _, char in ipairs(trigger_chars) do
         if trigger_char == char then
             valid_trigger = true
@@ -603,108 +531,127 @@ function SignatureHelp:trigger()
         end
     end
 
-    -- Enhanced parameter detection
+    -- Detect parameter position
     local detected_param = self:detect_active_parameter()
-    local retrigger = false
+    local retrigger = self.visible and self.last_active_parameter ~= detected_param
 
-    -- Check if we should retrigger based on parameter change
-    if self.visible and self.last_active_parameter ~= detected_param then
-        retrigger = true
-    end
-
-    -- Prepare enhanced parameters
-    local params = vim.lsp.util.make_position_params(0, signature_client.offset_encoding)
-    params.context = {
-        triggerKind = valid_trigger and 
-            vim.lsp.protocol.SignatureHelpTriggerKind.TriggerCharacter or
-            vim.lsp.protocol.SignatureHelpTriggerKind.ContentChange,
-        triggerCharacter = valid_trigger and trigger_char or nil,
-        isRetrigger = retrigger,
-        activeParameter = detected_param
+    -- Create custom position parameters
+    local position = {
+        textDocument = {
+            uri = uri
+        },
+        position = {
+            line = row - 1, -- LSP uses 0-based line numbers
+            character = col
+        },
+        context = {
+            triggerKind = valid_trigger and 
+                vim.lsp.protocol.SignatureHelpTriggerKind.TriggerCharacter or
+                vim.lsp.protocol.SignatureHelpTriggerKind.ContentChange,
+            triggerCharacter = valid_trigger and trigger_char or nil,
+            isRetrigger = retrigger,
+            activeParameter = detected_param
+        }
     }
 
-    -- Cache current state for comparison
+    -- Cache current state
     local current_state = {
         line = line,
-        cursor = cursor_pos,
-        parameter = detected_param
+        row = row,
+        col = col,
+        parameter = detected_param,
+        bufnr = bufnr
     }
 
-    -- Make the request with enhanced callback
-    vim.lsp.buf_request(0, "textDocument/signatureHelp", params, function(err, result, ctx)
-        -- Validate context and buffer
-        if not ctx.bufnr or not vim.api.nvim_buf_is_valid(ctx.bufnr) then
-            return
-        end
-
-        -- Check if the context has changed significantly
-        local new_line = vim.api.nvim_get_current_line()
-        local new_cursor = vim.api.nvim_win_get_cursor(0)
-        if new_line ~= current_state.line or 
-           new_cursor[1] ~= current_state.cursor[1] or 
-           math.abs(new_cursor[2] - current_state.cursor[2]) > 1 then
-            return
-        end
-
-        if err then
-            if not self.config.silent then
-                vim.notify("Signature help error: " .. tostring(err), vim.log.levels.WARN)
+    -- Make request with enhanced error handling
+    vim.lsp.buf_request(
+        bufnr,
+        "textDocument/signatureHelp",
+        position,
+        function(err, result, ctx)
+            -- Context validation
+            if not ctx.bufnr or not vim.api.nvim_buf_is_valid(ctx.bufnr) then
+                return
             end
-            return
-        end
 
-        -- Enhanced result validation
-        if not result or not result.signatures or vim.tbl_isempty(result.signatures) then
-            if self.visible then
-                self:hide()
+            -- Check for context changes
+            if ctx.bufnr ~= current_state.bufnr then
+                return
             end
-            return
-        end
 
-        -- Process and cache signature information
-        local active_sig_idx = result.activeSignature or 0
-        local sig = result.signatures[active_sig_idx + 1]
-        
-        if sig then
-            -- Enhanced parameter caching
-            self.parameter_cache[sig.label] = {
-                count = (sig.parameters and #sig.parameters) or 0,
-                active = result.activeParameter,
-                timestamp = vim.loop.now(),
-                signature = sig
-            }
+            local new_line = vim.api.nvim_get_current_line()
+            local new_cursor = vim.api.nvim_win_get_cursor(0)
+            if new_line ~= current_state.line or 
+               new_cursor[1] ~= current_state.row or 
+               math.abs(new_cursor[2] - current_state.col) > 1 then
+                return
+            end
 
-            -- Cache frequently used signatures for better performance
-            while #self.parameter_cache > self.config.performance.cache_size do
-                local oldest_time = math.huge
-                local oldest_key = nil
-                for k, v in pairs(self.parameter_cache) do
-                    if v.timestamp < oldest_time then
-                        oldest_time = v.timestamp
-                        oldest_key = k
+            -- Error handling
+            if err then
+                if not self.config.silent then
+                    vim.notify("Signature help error: " .. tostring(err), vim.log.levels.WARN)
+                end
+                return
+            end
+
+            -- Result validation
+            if not result or not result.signatures or vim.tbl_isempty(result.signatures) then
+                if self.visible then
+                    self:hide()
+                end
+                return
+            end
+
+            -- Process signature information
+            local active_sig_idx = result.activeSignature or 0
+            local sig = result.signatures[active_sig_idx + 1]
+            
+            if sig then
+                -- Enhanced caching with timestamp
+                self.parameter_cache[sig.label] = {
+                    count = (sig.parameters and #sig.parameters) or 0,
+                    active = result.activeParameter,
+                    timestamp = vim.loop.now(),
+                    signature = sig,
+                    bufnr = ctx.bufnr
+                }
+
+                -- Manage cache size
+                if vim.tbl_count(self.parameter_cache) > self.config.performance.cache_size then
+                    local oldest_time = math.huge
+                    local oldest_key = nil
+                    for k, v in pairs(self.parameter_cache) do
+                        if v.timestamp < oldest_time then
+                            oldest_time = v.timestamp
+                            oldest_key = k
+                        end
+                    end
+                    if oldest_key then
+                        self.parameter_cache[oldest_key] = nil
                     end
                 end
-                if oldest_key then
-                    self.parameter_cache[oldest_key] = nil
-                end
             end
-        end
 
-        -- Update state
-        self.last_active_parameter = result.activeParameter
-        
-        -- Display with debouncing
-        if self.config.performance.debounce_time > 0 then
-            if self.display_timer then
-                vim.fn.timer_stop(self.display_timer)
-            end
-            self.display_timer = vim.fn.timer_start(self.config.performance.debounce_time, function()
+            -- Update state
+            self.last_active_parameter = result.activeParameter
+
+            -- Display with debouncing
+            if self.config.performance.debounce_time > 0 then
+                if self.display_timer then
+                    vim.fn.timer_stop(self.display_timer)
+                end
+                self.display_timer = vim.fn.timer_start(
+                    self.config.performance.debounce_time,
+                    function()
+                        self:display(result)
+                    end
+                )
+            else
                 self:display(result)
-            end)
-        else
-            self:display(result)
+            end
         end
-    end)
+    )
 end
 function SignatureHelp:check_capability()
 	local clients = vim.lsp.get_clients()
