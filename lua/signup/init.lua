@@ -75,23 +75,26 @@ local default_config = {
 
 -- Initialize new instance
 function SignatureHelp.new()
-    local self = setmetatable({
-        win = nil,             -- Window handle
-        buf = nil,             -- Buffer handle
-        visible = false,       -- Visibility state
-        config = nil,          -- Configuration
-        cache = {},           -- Signature cache
-        current = {           -- Current state
+	local self = setmetatable({
+        win = nil,
+        buf = nil,
+        visible = false,
+        config = vim.deepcopy(default_config), -- Initialize with default config
+        cache = {},
+        current = {
             signatures = nil,
             active_sig = 1,
             active_param = 0,
             dock_mode = false,
         },
-        timers = {           -- Timers
+        timers = {
             debounce = nil,
             throttle = nil,
             gc = nil,
         },
+        enabled = false,
+        last_active_parameter = nil,
+        parameter_cache = {},
     }, SignatureHelp)
 
     -- Initialize cache with timestamp
@@ -102,6 +105,31 @@ function SignatureHelp.new()
             return v
         end
     })
+
+    -- Ensure detect_active_parameter method exists
+    if not self.detect_active_parameter then
+        self.detect_active_parameter = function()
+            local cursor_pos = vim.api.nvim_win_get_cursor(0)
+            local line = vim.api.nvim_get_current_line()
+            local line_to_cursor = line:sub(1, cursor_pos[2])
+
+            local open_count = 0
+            local param_index = 0
+
+            for i = 1, #line_to_cursor do
+                local char = line_to_cursor:sub(i, i)
+                if char == "(" then
+                    open_count = open_count + 1
+                elseif char == ")" then
+                    open_count = open_count - 1
+                elseif char == "," and open_count == 1 then
+                    param_index = param_index + 1
+                end
+            end
+
+            return open_count > 0 and param_index or 0
+        end
+    end
 
     return self
 end
@@ -345,12 +373,15 @@ function SignatureHelp:trigger()
     self.cmp_visible_cache = cmp_visible
 
     -- Enhanced CMP overlap handling
-    if cmp_visible then
-        if self.config.avoid_cmp_overlap then
+	if cmp_visible then
+        if self.config and self.config.behavior and self.config.behavior.avoid_cmp_overlap then
             self:hide()
             return
-        elseif self.config.dock_mode.enabled then
-            self.config.dock_mode.position = "bottom"
+        elseif self.config and self.config.behavior and self.config.behavior.dock_mode then
+            -- Safely access dock mode configuration
+            if type(self.config.behavior.dock_mode) == "table" then
+                self.config.behavior.dock_mode.position = "bottom"
+            end
         end
     end
 
@@ -1278,21 +1309,19 @@ function M.setup(opts)
     end
     -- Create new instance
     local instance = SignatureHelp.new()
-    
+    instance.config.behavior = vim.tbl_deep_extend("force", {
+        avoid_cmp_overlap = true,
+        dock_mode = false,
+        auto_trigger = true,
+        trigger_chars = { "(", "," },
+        close_on_done = true,
+        dock_position = "bottom",
+        debounce = 50,
+        prefer_active = true,
+    }, opts.behavior or {})
     -- Merge configurations
-    local function validate_merge(base, override)
-        local result = vim.deepcopy(base)
-        for k, v in pairs(override) do
-            if type(v) == "table" and type(result[k]) == "table" then
-                result[k] = validate_merge(result[k], v)
-            else
-                result[k] = v
-            end
-        end
-        return result
-    end
+	instance.config = vim.tbl_deep_extend("force", instance.config, opts)
 
-    instance.config = validate_merge(default_config, opts)
     
 	local setup_ok, setup_err = pcall(function()
         instance:setup_highlights()
