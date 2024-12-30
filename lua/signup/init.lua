@@ -202,14 +202,16 @@ function SignatureHelp:validate_context(old_state, ctx)
 end
 
 function SignatureHelp:check_capability()
-    local clients = vim.lsp.get_clients()
+    -- Simple check if LSP is available and has signature help capability
+    local clients = vim.lsp.get_active_clients({ bufnr = 0 })
     for _, client in ipairs(clients) do
         if client.server_capabilities.signatureHelpProvider then
             self.enabled = true
-            return
+            return true
         end
     end
     self.enabled = false
+    return false
 end
 
 function SignatureHelp:manage_cache()
@@ -863,50 +865,26 @@ function SignatureHelp:setup_autocmds()
     local group = api.nvim_create_augroup("SignatureHelp", { clear = true })
 
     -- Auto-trigger in insert mode
-    if self.config.behavior.auto_trigger then
-        -- Trigger on insert mode entry
-        api.nvim_create_autocmd("InsertEnter", {
-            group = group,
-            callback = function()
-                utils.debounce(function() self:trigger() end, self.config.behavior.debounce)
-            end
-        })
+    api.nvim_create_autocmd("InsertEnter", {
+        group = group,
+        callback = function()
+            utils.debounce(function() self:trigger() end, self.config.behavior.debounce)
+        end
+    })
 
-        -- Trigger on typing trigger characters
-        api.nvim_create_autocmd("TextChangedI", {
-            group = group,
-            callback = function()
-                local char = vim.fn.strcharpart(vim.fn.getline('.'):sub(vim.fn.col('.') - 1), 0, 1)
-                if vim.tbl_contains(self.config.behavior.trigger_chars, char) then
-                    utils.debounce(function() self:trigger() end, self.config.behavior.debounce)
-                end
-            end
-        })
+    -- Update on cursor movement in insert mode
+    api.nvim_create_autocmd("CursorMovedI", {
+        group = group,
+        callback = function()
+            utils.debounce(function() self:trigger() end, self.config.behavior.debounce)
+        end
+    })
 
-        -- Update on cursor movement in insert mode
-        api.nvim_create_autocmd("CursorMovedI", {
-            group = group,
-            callback = function()
-                utils.debounce(function() self:smart_refresh() end, self.config.behavior.debounce)
-            end
-        })
-    end
-
-    -- Hide on leaving insert mode (unless in normal mode)
+    -- Hide on leaving insert mode
     api.nvim_create_autocmd("InsertLeave", {
         group = group,
         callback = function()
             if not self.normal_mode_active then
-                self:hide()
-            end
-        end
-    })
-
-    -- Update on completion menu changes
-    api.nvim_create_autocmd("CompleteChanged", {
-        group = group,
-        callback = function()
-            if utils.is_completion_visible() and self.config.behavior.avoid_cmp_overlap then
                 self:hide()
             end
         end
@@ -932,18 +910,7 @@ function SignatureHelp:setup_autocmds()
             end
         end
     })
-
-    -- Handle buffer changes
-    api.nvim_create_autocmd("BufEnter", {
-        group = group,
-        callback = function()
-            if self.visible then
-                self:smart_refresh()
-            end
-        end
-    })
 end
-
 function SignatureHelp:setup_keymaps()
     -- Setup toggle keys using the actual config
     local toggle_key = self.config.keymaps.toggle
@@ -1316,63 +1283,26 @@ function SignatureHelp:show_history()
 end
 
 
--- Add to init.lua after the SignatureHelp class definition
-
--- Main setup function for the plugin
-function M.setup(opts)
-    -- Merge user config with defaults
-    local config = vim.tbl_deep_extend("force", default_config, opts or {})
-    
-    -- Create new instance
-    local instance = SignatureHelp.new()
-    instance.config = config
-
-    -- Setup highlights
-    require('signup.highlights').setup_highlights(config.colors)
-
-    -- Setup autocommands
-    instance:setup_autocmds()
-    
-    -- Setup keymaps
-    instance:setup_keymaps()
-
-    -- Setup virtual text if enabled
-    if config.features.virtual_text then
-        instance:setup_virtual_text()
-    end
-
-    -- Store instance globally
-    M._instance = instance
-
-    return instance
-end
-
--- Add these methods to the SignatureHelp class
 
 function SignatureHelp:trigger()
-    if not self.enabled then
-        self:check_capability()
-    end
-
-    if not self.enabled then
+    -- Early return if no LSP capability
+    if not self:check_capability() then
         return
     end
 
     -- Get current context
     local context = self:detect_signature_context()
-    
-    -- Skip if no signature context found
     if not context.method_name then
         self:hide()
         return
     end
 
-    -- Request signature help
+    -- Request signature help safely
+    local bufnr = vim.api.nvim_get_current_buf()
     vim.lsp.buf.signature_help({
-        bufnr = vim.api.nvim_get_current_buf(),
-        handler = function(err, result, ctx)
-            if err or not result or vim.tbl_isempty(result.signatures) then
-                self:hide()
+        bufnr = bufnr,
+        handler = vim.schedule_wrap(function(err, result, ctx)
+            if err or not result or not result.signatures or #result.signatures == 0 then
                 return
             end
             
@@ -1384,10 +1314,9 @@ function SignatureHelp:trigger()
             if self.config.features.history then
                 self:add_to_history()
             end
-        end
+        end)
     })
 end
-
 function SignatureHelp:hide()
     -- Close main window
     if self.win and vim.api.nvim_win_is_valid(self.win) then
@@ -1460,4 +1389,67 @@ function M.toggle()
 end
 
 
-return M
+
+function M.setup(opts)
+    -- Create instance if it doesn't exist
+    if not M._instance then
+        -- Merge user config with defaults
+        local config = vim.tbl_deep_extend("force", default_config, opts or {})
+        
+        -- Create new instance
+        local instance = SignatureHelp.new()
+        instance.config = config
+
+        -- Setup highlights
+        require('signup.highlights').setup_highlights(config.colors)
+
+        -- Setup autocommands
+        instance:setup_autocmds()
+        
+        -- Setup keymaps
+        instance:setup_keymaps()
+
+        -- Setup virtual text if enabled
+        if config.features.virtual_text then
+            instance:setup_virtual_text()
+        end
+
+        -- Store instance globally
+        M._instance = instance
+    end
+
+    return M._instance
+end
+
+
+
+local function autoload(opts)
+    if not M._instance then
+        M.setup(opts)
+    end
+    return M._instance
+end
+
+-- Export methods with autoloading
+function M.trigger(opts)
+    return autoload(opts):trigger()
+end
+
+function M.hide(opts)
+    return autoload(opts):hide()
+end
+
+function M.toggle(opts)
+    local instance = autoload(opts)
+    if instance.visible then
+        instance:hide()
+    else
+        instance:trigger()
+    end
+end
+
+return setmetatable(M, {
+    __call = function(_, opts)
+        return M.setup(opts)
+    end
+})
