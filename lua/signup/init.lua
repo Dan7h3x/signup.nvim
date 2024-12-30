@@ -91,28 +91,28 @@ local default_config = {
 -- Initialize new instance
 function SignatureHelp.new()
 	local self = setmetatable({
-		win = nil,
-		buf = nil,
-		highlight_ns = vim.api.nvim_create_namespace('SignatureHelpHighlight'),
+        win = nil,
+        buf = nil,
+        highlight_ns = vim.api.nvim_create_namespace('SignatureHelpHighlight'),
         last_context = nil,
-		visible = false,
-		config = vim.deepcopy(default_config), -- Initialize with default config
-		cache = {},
-		current = {
-			signatures = nil,
-			active_sig = 1,
-			active_param = 0,
-			dock_mode = false,
-		},
-		timers = {
-			debounce = nil,
-			throttle = nil,
-			gc = nil,
-		},
-		enabled = false,
-		last_active_parameter = nil,
-		parameter_cache = {},
-	}, SignatureHelp)
+        visible = false,
+        config = vim.deepcopy(default_config),
+        cache = {},
+        current = {
+            signatures = nil,
+            active_sig = 1,
+            active_param = 0,
+            dock_mode = false,
+        },
+        timers = {
+            debounce = nil,
+            throttle = nil,
+            gc = nil,
+        },
+        enabled = false,
+        last_active_parameter = nil,
+        parameter_cache = {},
+    }, SignatureHelp)
 
 	-- Initialize cache with timestamp
 	self.cache = setmetatable({}, {
@@ -165,12 +165,15 @@ function SignatureHelp:create_window(contents)
 	end
 
 	-- Calculate window dimensions
-	local width =
-		math.min(math.max(#contents[1] + 4, self.config.ui.min_width), self.config.ui.max_width, vim.o.columns)
+	local width = math.min(math.max(#contents[1] + 4, self.config.ui.min_width), self.config.ui.max_width, vim.o.columns)
 	local height = math.min(#contents, self.config.ui.max_height)
 
 	-- Create window options based on mode
 	local opts = self:get_window_opts(width, height)
+	local pos = self:calculate_window_position()
+    local opts = self:get_window_opts(width, height)
+    opts.row = pos.row
+    opts.col = pos.col
 
 	-- Create or update window
 	if not self.win or not api.nvim_win_is_valid(self.win) then
@@ -605,23 +608,13 @@ function SignatureHelp:trigger()
 			}
 
 			-- Manage cache size with safe iteration
-			if vim.tbl_count(self.parameter_cache) > (self.config.performance.cache_size or 10) then
-				local oldest_time = math.huge
-				local oldest_key = nil
-				for k, v in pairs(self.parameter_cache) do
-					if v.timestamp and v.timestamp < oldest_time then
-						oldest_time = v.timestamp
-						oldest_key = k
-					end
-				end
-				if oldest_key then
-					self.parameter_cache[oldest_key] = nil
-				end
-			end
+			-- 
+			self:manage_cache()
 		end
 
 		-- Update state with safe assignment
 		self.last_active_parameter = result.activeParameter or 0
+		self:smart_refresh()
 
 		-- Display with debouncing and safe access
 		local debounce_time = self.config.performance and self.config.performance.debounce_time or 0
@@ -872,52 +865,52 @@ function SignatureHelp:format_signature_list(signatures)
 end
 
 function SignatureHelp:format_signature_line(signature, index, show_index)
-	local parts = {}
+    local parts = {}
 
-	-- Add method icon and name
-	local method_name = signature.label:match("^([^(]+)")
-	if method_name then
-		table.insert(parts, self.config.icons.method .. method_name)
-	end
+    -- Add method icon and name
+    local method_name = signature.label:match("^([^(]+)")
+    if method_name then
+        table.insert(parts, self.config.icons.method .. method_name)
+    end
 
-	-- Format parameters safely
-	local param_parts = {}
-	local params = signature.parameters or {}
-	local active_param = signature.activeParameter or 0
+    -- Format parameters safely
+    local param_parts = {}
+    local params = signature.parameters or {}
+    local active_param = signature.activeParameter or 0
 
-	for i, param in ipairs(params) do
-		-- Handle different parameter label formats
-		local param_text = ""
-		if type(param.label) == "string" then
-			param_text = param.label
-		elseif type(param.label) == "table" then
-			-- Handle array-style label [start, end]
-			if param.label[1] and param.label[2] then
-				param_text = signature.label:sub(param.label[1] + 1, param.label[2])
-			end
-		end
+    for i, param in ipairs(params) do
+        -- Handle different parameter label formats
+        local param_text = ""
+        if type(param.label) == "string" then
+            param_text = param.label
+        elseif type(param.label) == "table" then
+            -- Handle array-style label [start, end]
+            if param.label[1] and param.label[2] then
+                param_text = signature.label:sub(param.label[1] + 1, param.label[2])
+            end
+        end
 
-		-- Add parameter formatting
-		if i == active_param + 1 then
-			param_text = string.format("<%s>", param_text)
-		end
+        -- Add parameter formatting
+        if i == active_param + 1 then
+            param_text = string.format("<%s>", param_text)
+        end
 
-		if param_text ~= "" then
-			table.insert(param_parts, param_text)
-		end
-	end
+        if param_text ~= "" then
+            table.insert(param_parts, param_text)
+        end
+    end
 
-	-- Safely combine parts
-	local method_part = table.concat(parts, " ")
-	local params_part = table.concat(param_parts, ", ")
-	local sig_line = method_part .. "(" .. params_part .. ")"
+    -- Safely combine parts
+    local method_part = table.concat(parts, " ")
+    local params_part = table.concat(param_parts, ", ")
+    local sig_line = method_part .. "(" .. params_part .. ")"
 
-	-- Add index if showing multiple signatures
-	if show_index then
-		sig_line = sig_line .. string.format(" (%d/%d)", index, #params)
-	end
+    -- Add index if showing multiple signatures
+    if show_index then
+        sig_line = sig_line .. string.format(" (%d/%d)", index, #params)
+    end
 
-	return sig_line
+    return sig_line
 end
 function SignatureHelp:calculate_window_position()
     local cursor_pos = vim.api.nvim_win_get_cursor(0)
@@ -1369,31 +1362,31 @@ function SignatureHelp:apply_treesitter_highlighting()
 end
 
 function SignatureHelp:hide()
-	if self.visible then
-		-- Store current window and buffer
-		local current_win = api.nvim_get_current_win()
-		local current_buf = api.nvim_get_current_buf()
+    if self.visible then
+        -- Store current window and buffer
+        local current_win = api.nvim_get_current_win()
+        local current_buf = api.nvim_get_current_buf()
 
-		-- Close appropriate window based on mode
-		if self.config.behavior.dock_mode then
-			self:close_dock_window()
-		else
-			if self.win and api.nvim_win_is_valid(self.win) then
-				api.nvim_win_close(self.win, true)
-			end
-			if self.buf and api.nvim_buf_is_valid(self.buf) then
-				pcall(api.nvim_buf_delete, self.buf, { force = true })
-			end
-			self.win = nil
-			self.buf = nil
-		end
+        -- Close appropriate window based on mode
+        if self.config.behavior.dock_mode then
+            self:close_dock_window()
+        else
+            if self.win and api.nvim_win_is_valid(self.win) then
+                pcall(api.nvim_win_close, self.win, true)
+            end
+            if self.buf and api.nvim_buf_is_valid(self.buf) then
+                pcall(api.nvim_buf_delete, self.buf, { force = true })
+            end
+            self.win = nil
+            self.buf = nil
+        end
 
-		self.visible = false
+        self.visible = false
 
-		-- Restore focus
-		pcall(api.nvim_set_current_win, current_win)
-		pcall(api.nvim_set_current_buf, current_buf)
-	end
+        -- Restore focus
+        pcall(api.nvim_set_current_win, current_win)
+        pcall(api.nvim_set_current_buf, current_buf)
+    end
 end
 
 -- Add API methods for external use
