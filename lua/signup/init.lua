@@ -933,50 +933,38 @@ end
 function SignatureHelp:setup_autocmds()
     local group = api.nvim_create_augroup("SignatureHelp", { clear = true })
 
-    if self.config.behavior.auto_trigger then
-        -- Trigger on insert mode entry
-        api.nvim_create_autocmd("InsertEnter", {
-            group = group,
-            callback = function()
+    -- Auto-trigger in insert mode
+    api.nvim_create_autocmd("InsertEnter", {
+        group = group,
+        callback = function()
+            utils.debounce(function() self:trigger() end, self.config.behavior.debounce)
+        end
+    })
+
+    -- Trigger on typing trigger characters
+    api.nvim_create_autocmd("TextChangedI", {
+        group = group,
+        callback = function()
+            local char = vim.fn.strcharpart(vim.fn.getline('.'):sub(vim.fn.col('.') - 1), 0, 1)
+            if vim.tbl_contains(self.config.behavior.trigger_chars, char) then
                 utils.debounce(function() self:trigger() end, self.config.behavior.debounce)
             end
-        })
+        end
+    })
 
-        -- Trigger on typing trigger characters
-        api.nvim_create_autocmd("TextChangedI", {
-            group = group,
-            callback = function()
-                local char = vim.fn.strcharpart(vim.fn.getline('.'):sub(vim.fn.col('.') - 1), 0, 1)
-                if vim.tbl_contains(self.config.behavior.trigger_chars, char) then
-                    utils.debounce(function() self:trigger() end, self.config.behavior.debounce)
-                end
-            end
-        })
-
-        -- Update on cursor movement in insert mode
-        api.nvim_create_autocmd("CursorMovedI", {
-            group = group,
-            callback = function()
-                utils.debounce(function() self:smart_refresh() end, self.config.behavior.debounce)
-            end
-        })
-    end
+    -- Update on cursor movement in insert mode
+    api.nvim_create_autocmd("CursorMovedI", {
+        group = group,
+        callback = function()
+            utils.debounce(function() self:smart_refresh() end, self.config.behavior.debounce)
+        end
+    })
 
     -- Hide on leaving insert mode (unless in normal mode)
     api.nvim_create_autocmd("InsertLeave", {
         group = group,
         callback = function()
             if not self.normal_mode_active then
-                self:hide()
-            end
-        end
-    })
-
-    -- Update on completion menu changes
-    api.nvim_create_autocmd("CompleteChanged", {
-        group = group,
-        callback = function()
-            if utils.is_completion_visible() and self.config.behavior.avoid_cmp_overlap then
                 self:hide()
             end
         end
@@ -1002,16 +990,6 @@ function SignatureHelp:setup_autocmds()
             end
         end
     })
-
-    -- Handle buffer changes
-    api.nvim_create_autocmd("BufEnter", {
-        group = group,
-        callback = function()
-            if self.visible then
-                self:smart_refresh()
-            end
-        end
-    })
 end
 
 -- Add toggle normal mode functionality
@@ -1032,12 +1010,12 @@ function SignatureHelp:trigger()
         return
     end
 
-    -- Request signature help
+    -- Request signature help safely
+    local bufnr = vim.api.nvim_get_current_buf()
     vim.lsp.buf.signature_help({
-        bufnr = vim.api.nvim_get_current_buf(),
+        bufnr = bufnr,
         handler = vim.schedule_wrap(function(err, result, ctx)
             if err or not result or vim.tbl_isempty(result.signatures) then
-                self:hide()
                 return
             end
             
@@ -1527,8 +1505,6 @@ function SignatureHelp:smart_refresh()
         require('signup.window').update_window_position(self.win, self.config)
     end
 end
-
-
 
 function M.setup(opts)
     -- Create instance if it doesn't exist
