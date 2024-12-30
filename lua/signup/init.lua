@@ -8,84 +8,85 @@ SignatureHelp.__index = SignatureHelp
 
 -- Default configuration
 local default_config = {
-	-- UI configuration
-	ui = {
-		border = "rounded", -- Border style: 'single', 'double', 'rounded', 'solid'
-		max_width = 40, -- Maximum width of signature window
-		max_height = 7, -- Maximum height of signature window
-		min_width = 40, -- Minimum width of signature window
-		padding = 1, -- Padding inside the window
-		spacing = 1, -- Spacing between signature elements
-		opacity = 0.8, -- Window opacity (1.0 is fully opaque)
-		zindex = 50, -- Z-index of the window
-	},
-	parameter_indicators = {
-		enabled = true,
-		active_symbol = "●",
-		inactive_symbol = "○",
-	},
-	highlights = {
-		icons = true,
-		parameters = true,
-		indicators = true,
-	},
-	position = {
-		prefer_above = true,
-		padding = 1,
-		avoid_cursor = true,
-	},
-
-	-- Colors and highlights
-	colors = {
-		background = nil, -- Background color (nil = default)
-		border = nil, -- Border color
-		parameter = "#86e1fc", -- Active parameter color
-		text = nil, -- Text color
-		type = "#c099ff", -- Type signature color
-		method = "#4fd6be", -- Method name color
-		documentation = "#4fd6be", -- Documentation color
-		default_value = "#a8a8a8", -- Default value color
-	},
-	-- Active parameter highlighting
-	active_parameter_colors = {
-		fg = "#1a1a1a", -- Active parameter foreground color
-		bg = "#86e1fc", -- Active parameter background color
-	},
-
-	-- Icons and formatting
-	icons = {
-		parameter = "󰘍 ", -- Icon for parameters
-		method = "󰡱 ", -- Icon for method names
-		separator = " → ", -- Separator between elements
-	},
-
-	-- Behavior settings
-	behavior = {
-		auto_trigger = true, -- Auto trigger on typing
-		trigger_chars = { "(", "," }, -- Characters that trigger signature
-		close_on_done = true, -- Close window when done typing
-		dock_mode = false, -- Enable dock mode
-		dock_position = "bottom", -- 'top', 'bottom', 'right'
-		debounce = 50, -- Debounce time in ms
-		prefer_active = true, -- Prefer showing active signature
-	},
-
-	-- Performance settings
-	performance = {
-		cache_size = 10, -- Size of signature cache
-		throttle = 30, -- Throttle time in ms
-		gc_interval = 60 * 60, -- Garbage collection interval in seconds
-	},
-
-	-- Keymaps
-	keymaps = {
-		toggle = "<A-k>", -- Toggle signature window
-		next_signature = "<C-j>", -- Next signature
-		prev_signature = "<C-h>", -- Previous signature
-		next_parameter = "<C-l>", -- Next parameter
-		prev_parameter = "<C-h>", -- Previous parameter
-		toggle_dock = "<Leader>sd", -- Toggle dock mode
-	},
+    ui = {
+        border = "rounded",
+        max_width = 80,      -- Increased for better readability
+        max_height = 10,     -- Increased for better visibility
+        min_width = 40,
+        padding = 1,
+        spacing = 1,
+        opacity = 0.9,       -- Increased for better visibility
+        zindex = 50,
+        wrap = true,         -- Added wrap option
+        show_header = true,  -- Added option to show/hide header
+    },
+    parameter_indicators = {
+        enabled = true,
+        active_symbol = "●",
+        inactive_symbol = "○",
+        separator = " ",     -- Added separator option
+    },
+    highlights = {
+        enabled = true,      -- Added master switch
+        icons = true,
+        parameters = true,
+        indicators = true,
+        header = true,       -- Added header highlight option
+    },
+    position = {
+        prefer_above = true,
+        padding = 1,
+        avoid_cursor = true,
+        follow_cursor = true, -- Added follow cursor option
+    },
+    colors = {
+        background = nil,
+        border = nil,
+        parameter = "#86e1fc",
+        text = nil,
+        type = "#c099ff",
+        method = "#4fd6be",
+        documentation = "#4fd6be",
+        default_value = "#a8a8a8",
+        header = "#c099ff",  -- Added header color
+    },
+    active_parameter_colors = {
+        fg = "#1a1a1a",
+        bg = "#86e1fc",
+        bold = true,         -- Added bold option
+    },
+    icons = {
+        parameter = "󰘍 ",
+        method = "󰡱 ",
+        separator = " → ",
+        header = "󰅲 ",      -- Added header icon
+    },
+    behavior = {
+        auto_trigger = true,
+        trigger_chars = { "(", ",", "<" },  -- Added < for generics
+        close_on_done = true,
+        dock_mode = false,
+        dock_position = "bottom",
+        debounce = 50,
+        prefer_active = true,
+        avoid_cmp_overlap = true,  -- Added option to avoid overlap with cmp
+    },
+    performance = {
+        cache_size = 10,
+        throttle = 30,
+        gc_interval = 60 * 60,
+        max_signature_length = 100, -- Added max signature length
+    },
+    keymaps = {
+        toggle = "<A-k>",
+        next_signature = "<C-j>",
+        prev_signature = "<C-h>",
+        next_parameter = "<C-l>",
+        prev_parameter = "<C-h>",
+        toggle_dock = "<Leader>sd",
+        scroll_up = "<C-u>",    -- Added scroll keymaps
+        scroll_down = "<C-d>",
+    },
 }
 
 function SignatureHelp.new()
@@ -763,59 +764,61 @@ function SignatureHelp:display(result)
 end
 
 
-
 function SignatureHelp:format_signature_list(signatures)
-	if not signatures or type(signatures) ~= "table" then
-		return {}, {}
-	end
+    if not signatures or type(signatures) ~= "table" then
+        return {}, {}
+    end
 
-	local contents = {}
-	local labels = {}
+    local contents = {}
+    local labels = {}
 
-	local show_index = #signatures > 1
+    local show_index = #signatures > 1
 
-	for idx, signature in ipairs(signatures) do
-		if type(signature) == "table" then
-			table.insert(labels, #contents + 1)
+    for idx, signature in ipairs(signatures) do
+        if type(signature) == "table" then
+            table.insert(labels, #contents + 1)
 
-			-- Safely format the signature line
-			local ok, sig_line = pcall(self.format_signature_line, self, signature, idx, show_index)
-			if ok and sig_line then
-				table.insert(contents, sig_line)
+            -- Safely format the signature line
+            local ok, sig_lines = pcall(self.format_signature_line, self, signature, idx, show_index)
+            if ok and sig_lines then
+                -- Add each line of the signature
+                for _, line in ipairs(sig_lines) do
+                    table.insert(contents, line)
+                end
 
-				-- Add documentation if available
-				if signature.documentation then
-					local doc = type(signature.documentation) == "string" and signature.documentation
-						or (signature.documentation.value or "")
+                -- Add documentation if available
+                if signature.documentation then
+                    local doc = type(signature.documentation) == "string" and signature.documentation
+                        or (signature.documentation.value or "")
 
-					if doc and doc:match("%S") then
-						-- Add separator
-						table.insert(contents, string.rep("─", 40))
-						-- Add documentation with icon
-						table.insert(contents, self.config.icons.method .. " Documentation:")
-						-- Split and add documentation lines
-						for _, line in ipairs(vim.split(doc, "\n")) do
-							if line:match("%S") then
-								table.insert(contents, "  " .. line)
-							end
-						end
-					end
-				end
+                    if doc and doc:match("%S") then
+                        -- Add separator
+                        table.insert(contents, string.rep("─", 40))
+                        -- Add documentation with icon
+                        table.insert(contents, self.config.icons.method .. " Documentation:")
+                        -- Split and add documentation lines
+                        for _, line in ipairs(vim.split(doc, "\n")) do
+                            if line:match("%S") then
+                                table.insert(contents, "  " .. line)
+                            end
+                        end
+                    end
+                end
 
-				-- Add separator between signatures
-				if idx < #signatures then
-					table.insert(contents, string.rep("═", 40))
-				end
-			end
-		end
-	end
+                -- Add separator between signatures
+                if idx < #signatures then
+                    table.insert(contents, string.rep("═", 40))
+                end
+            end
+        end
+    end
 
-	-- Remove trailing empty lines
-	while #contents > 0 and not contents[#contents]:match("%S") do
-		table.remove(contents)
-	end
+    -- Remove trailing empty lines
+    while #contents > 0 and not contents[#contents]:match("%S") do
+        table.remove(contents)
+    end
 
-	return contents, labels
+    return contents, labels
 end
 
 function SignatureHelp:format_signature_line(signature, index, show_index)
@@ -854,7 +857,7 @@ function SignatureHelp:format_signature_line(signature, index, show_index)
         end
     end
 
-    -- Safely combine parts with wrapping
+    -- Safely combine parts
     local method_part = table.concat(parts, " ")
     local params_part = table.concat(param_parts, ", ")
     local sig_line = method_part .. "(" .. params_part .. ")"
@@ -864,9 +867,9 @@ function SignatureHelp:format_signature_line(signature, index, show_index)
         sig_line = sig_line .. string.format(" (%d/%d)", index, #params)
     end
 
-    -- Wrap long lines
+    -- Split long lines into multiple lines
+    local lines = {}
     if #sig_line > max_width then
-        local wrapped_lines = {}
         local current_line = ""
         local words = vim.split(sig_line, " ")
         
@@ -874,18 +877,18 @@ function SignatureHelp:format_signature_line(signature, index, show_index)
             if #current_line + #word + 1 <= max_width then
                 current_line = current_line == "" and word or current_line .. " " .. word
             else
-                table.insert(wrapped_lines, current_line)
-                current_line = word
+                table.insert(lines, current_line)
+                current_line = "    " .. word  -- Add indentation for wrapped lines
             end
         end
         if current_line ~= "" then
-            table.insert(wrapped_lines, current_line)
+            table.insert(lines, current_line)
         end
-        
-        sig_line = table.concat(wrapped_lines, "\n      ")  -- Add indent for wrapped lines
+    else
+        lines = {sig_line}
     end
 
-    return sig_line
+    return lines
 end
 function SignatureHelp:calculate_window_position()
 	local cursor_pos = vim.api.nvim_win_get_cursor(0)
