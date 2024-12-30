@@ -957,6 +957,13 @@ function SignatureHelp:setup_keymaps()
 		vim.keymap.set("n", toggle_key, function()
 			self:toggle_normal_mode()
 		end, { noremap = true, silent = true, desc = "Toggle signature help in normal mode" })
+		vim.keymap.set("i", toggle_key, function()
+            if self.visible then
+                self:hide()
+            else
+                self:trigger()
+            end
+        end, { noremap = true, silent = true, desc = "Toggle signature help in insert mode" })
 	end
 
 	if dock_toggle_key then
@@ -1005,10 +1012,10 @@ function SignatureHelp:setup_autocmds()
 			local cmp_visible = require("cmp").visible()
 			if cmp_visible then
 				self:hide()
-			elseif vim.fn.pumvisible() == 0 then
+			elseif vim.fn.pumvisible() == 0 and not self.normal_mode_active then
 				utils.debounce(function()
 					self:trigger()
-				end)
+				end, self.config.behavior.debounce)
 			else
 				self:hide()
 			end
@@ -1037,8 +1044,9 @@ function SignatureHelp:setup_autocmds()
 	api.nvim_create_autocmd({ "InsertLeave", "BufHidden", "BufLeave" }, {
 		group = group,
 		callback = function()
-			self:hide()
-			self.normal_mode_active = false
+			if not self.normal_mode_active then
+				self:hide()
+			end
 		end,
 	})
 
@@ -1087,10 +1095,11 @@ end
 -- LSP Integration and Trigger Logic
 function SignatureHelp:trigger()
 	-- Early return if not enabled
-	if not self.enabled or vim.api.nvim_get_mode().mode:sub(1, 1) ~= "i" then
-		logger.debug("SignatureHelp not enabled")
-		return
-	end
+	local mode = vim.api.nvim_get_mode().mode
+    if not self.enabled and not (mode:sub(1, 1) == "i" or self.normal_mode_active) then
+        logger.debug("SignatureHelp not enabled or invalid mode")
+        return
+    end
 
 	-- Define trigger kinds
 	local TriggerKind = {
@@ -1227,22 +1236,41 @@ function SignatureHelp:setup_highlights()
 end
 
 function SignatureHelp:toggle_normal_mode()
-	self.normal_mode_active = not self.normal_mode_active
-	if self.normal_mode_active then
-		-- Close dock window if it exists when entering normal mode
-		if self.config.behavior.dock_mode then
-			self:close_dock_window()
-			-- Temporarily disable dock mode
-			local was_dock_enabled = self.config.behavior.dock_mode
-			self.config.behavior.dock_mode = false
-			self:trigger()
-			self.config.behavior.dock_mode = was_dock_enabled
-		else
-			self:trigger()
-		end
-	else
-		self:hide()
-	end
+    self.normal_mode_active = not self.normal_mode_active
+    
+    if self.normal_mode_active then
+        -- Close dock window if it exists when entering normal mode
+        if self.config.behavior.dock_mode then
+            self:close_dock_window()
+            -- Temporarily disable dock mode
+            local was_dock_enabled = self.config.behavior.dock_mode
+            self.config.behavior.dock_mode = false
+            self:trigger()
+            self.config.behavior.dock_mode = was_dock_enabled
+        else
+            self:trigger()
+        end
+        
+        -- Setup normal mode specific autocmd
+        if not self.normal_mode_group then
+            self.normal_mode_group = vim.api.nvim_create_augroup("SignatureHelpNormal", { clear = true })
+            vim.api.nvim_create_autocmd({ "CursorMoved" }, {
+                group = self.normal_mode_group,
+                callback = function()
+                    if self.normal_mode_active then
+                        self:trigger()
+                    end
+                end,
+            })
+        end
+    else
+        self:hide()
+        -- Clean up normal mode autocmd
+        if self.normal_mode_group then
+            pcall(vim.api.nvim_del_augroup_by_id, self.normal_mode_group)
+            self.normal_mode_group = nil
+        end
+    end
 end
 
 function SignatureHelp:format_signature_line(signature, index, show_index)
@@ -1756,97 +1784,137 @@ function SignatureHelp:setup_completion_integration()
 end
 -- Plugin Setup and Configuration
 function M.setup(opts)
-	-- Prevent multiple initializations
-	if M._initialized then
-		logger.warn("signup.nvim already initialized")
-		return M._instance
-	end
-	return utils.safe_call(function()
-		opts = opts or {}
-		if type(opts) ~= "table" then
-			error("Configuration must be a table")
-		end
-		-- Create new instance
-		local instance = SignatureHelp.new()
-		instance.config.behavior = vim.tbl_deep_extend("force", {
-			avoid_cmp_overlap = true,
-			dock_mode = false,
-			auto_trigger = true,
-			trigger_chars = { "(", "," },
-			close_on_done = true,
-			dock_position = "bottom",
-			debounce = 50,
-			prefer_active = true,
-		}, opts.behavior or {})
-		-- Merge configurations
-		instance.config = vim.tbl_deep_extend("force", instance.config, opts)
+    -- Prevent multiple initializations
+    if M._initialized then
+        logger.warn("signup.nvim already initialized")
+        return M._instance
+    end
 
-		local setup_ok, setup_err = pcall(function()
-			instance:setup_highlights()
-			instance:setup_autocmds()
-			instance:setup_keymaps()
-			instance:setup_dock_autocmds()
-			instance:setup_virtual_text() -- New
-			instance:setup_language_specific_handlers() -- New
-			instance:setup_completion_integration() -- New
-		end)
+    return utils.safe_call(function()
+        -- Create new instance with default config
+        local instance = SignatureHelp.new()
 
-		if not setup_ok then
-			vim.notify("Failed to setup signup.nvim: " .. tostring(setup_err), vim.log.levels.ERROR)
-			return nil
-		end
+        -- Handle different opts cases
+        if opts then
+            if type(opts) ~= "table" then
+                error("Configuration must be a table")
+            end
 
-		-- Setup cleanup on exit
-		vim.api.nvim_create_autocmd("VimLeavePre", {
-			callback = function()
-				if M._instance then
-					M._instance:cleanup()
-				end
-			end,
-		})
-		-- Store instance
-		M._initialized = true
-		M._instance = instance
+            -- Deep merge behavior config first if it exists
+            if opts.behavior then
+                instance.config.behavior = vim.tbl_deep_extend("force", 
+                    instance.config.behavior, 
+                    opts.behavior
+                )
+            end
 
-		return instance
-	end)
+            -- Deep merge the rest of the config
+            for key, value in pairs(opts) do
+                if key ~= "behavior" then
+                    if type(value) == "table" and type(instance.config[key]) == "table" then
+                        instance.config[key] = vim.tbl_deep_extend("force", 
+                            instance.config[key], 
+                            value
+                        )
+                    else
+                        instance.config[key] = value
+                    end
+                end
+            end
+        end
+
+        -- Validate merged config
+        local ok, err = pcall(validate_config, instance.config)
+        if not ok then
+            error("Invalid configuration: " .. err)
+        end
+
+        -- Setup instance with merged config
+        local setup_ok, setup_err = pcall(function()
+            instance:setup_highlights()
+            instance:setup_autocmds()
+            instance:setup_keymaps()
+            instance:setup_dock_autocmds()
+            instance:setup_virtual_text()
+            instance:setup_language_specific_handlers()
+            instance:setup_completion_integration()
+        end)
+
+        if not setup_ok then
+            error("Failed to setup signup.nvim: " .. tostring(setup_err))
+        end
+
+        -- Setup cleanup on exit
+        vim.api.nvim_create_autocmd("VimLeavePre", {
+            callback = function()
+                if M._instance then
+                    M._instance:cleanup()
+                end
+            end,
+        })
+
+        -- Store instance
+        M._initialized = true
+        M._instance = instance
+
+        return instance
+    end)
 end
-
 -- Configuration Update
 function M.update(opts)
-	if not M._instance then
-		return M.setup(opts)
-	end
+    if not M._instance then
+        return M.setup(opts)
+    end
 
-	-- Merge new options with existing config
-	local instance = M._instance
-	local function update_config(base, new)
-		for k, v in pairs(new) do
-			if type(v) == "table" and type(base[k]) == "table" then
-				update_config(base[k], v)
-			else
-				base[k] = v
-			end
-		end
-	end
+    return utils.safe_call(function()
+        local instance = M._instance
 
-	-- Safely update configuration
-	pcall(update_config, instance.config, opts or {})
+        if opts then
+            if type(opts) ~= "table" then
+                error("Configuration must be a table")
+            end
 
-	-- Refresh highlights and windows
-	pcall(function()
-		instance:setup_highlights()
-		if instance.visible then
-			-- Refresh current display
-			instance:display({
-				signatures = instance.current_signatures,
-				activeParameter = instance.current_active_parameter,
-				activeSignature = instance.current_signature_idx and (instance.current_signature_idx - 1) or 0,
-			})
-		end
-	end)
+            -- Deep merge behavior config first if it exists
+            if opts.behavior then
+                instance.config.behavior = vim.tbl_deep_extend("force", 
+                    instance.config.behavior, 
+                    opts.behavior
+                )
+            end
 
-	return instance
+            -- Deep merge the rest of the config
+            for key, value in pairs(opts) do
+                if key ~= "behavior" then
+                    if type(value) == "table" and type(instance.config[key]) == "table" then
+                        instance.config[key] = vim.tbl_deep_extend("force", 
+                            instance.config[key], 
+                            value
+                        )
+                    else
+                        instance.config[key] = value
+                    end
+                end
+            end
+        end
+
+        -- Validate updated config
+        local ok, err = pcall(validate_config, instance.config)
+        if not ok then
+            error("Invalid configuration update: " .. err)
+        end
+
+        -- Refresh instance with updated config
+        instance:setup_highlights()
+        if instance.visible then
+            instance:display({
+                signatures = instance.current_signatures,
+                activeParameter = instance.current_active_parameter,
+                activeSignature = instance.current_signature_idx and (instance.current_signature_idx - 1) or 0,
+            })
+        end
+
+        return instance
+    end)
 end
 
 -- Health Check
@@ -1894,6 +1962,11 @@ function SignatureHelp:cleanup()
 	if self.dock_autocmd_group then
 		pcall(api.nvim_del_augroup_by_id, self.dock_autocmd_group)
 	end
+	if self.normal_mode_group then
+        pcall(vim.api.nvim_del_augroup_by_id, self.normal_mode_group)
+        self.normal_mode_group = nil
+    end
+    self.normal_mode_active = false
 end
 
 -- API Methods
