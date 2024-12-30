@@ -144,7 +144,6 @@ function SignatureHelp.new()
         },
 
         -- Feature flags
-        enabled = false, -- LSP capability enabled
         normal_mode_active = false, -- Normal mode state
 
         -- Cache management
@@ -1025,13 +1024,7 @@ function SignatureHelp:toggle_normal_mode()
     end
 end
 
--- Improve the trigger method
 function SignatureHelp:trigger()
-    -- Early return if no LSP capability
-    if not self:check_capability() then
-        return
-    end
-
     -- Get current context
     local context = self:detect_signature_context()
     if not context.method_name then
@@ -1059,7 +1052,6 @@ function SignatureHelp:trigger()
         end)
     })
 end
-
 function SignatureHelp:update_parameter(direction)
     if not self.current_signatures or not self.current_signature_idx then
         return
