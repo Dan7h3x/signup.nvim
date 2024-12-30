@@ -5,6 +5,7 @@ local logger = require('signup.logger')
 
 local M = {}
 
+-- Create a floating window with proper configuration
 function M.create_window(contents, config)
     local buf = api.nvim_create_buf(false, true)
     
