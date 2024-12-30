@@ -161,6 +161,104 @@ local function validate_config(config)
     
     return true
 end
+
+
+function SignatureHelp:validate_context(old_state, ctx)
+    if ctx.bufnr ~= old_state.bufnr then
+        return false
+    end
+
+    local new_line = vim.api.nvim_get_current_line()
+    local new_cursor = vim.api.nvim_win_get_cursor(0)
+
+    if new_line ~= old_state.line 
+        or new_cursor[1] ~= old_state.row 
+        or math.abs((new_cursor[2] or 0) - (old_state.col or 0)) > 1 then
+        return false
+    end
+
+    return true
+end
+function SignatureHelp:check_capability()
+    local clients = vim.lsp.get_clients()
+    for _, client in ipairs(clients) do
+        if client.server_capabilities.signatureHelpProvider then
+            self.enabled = true
+            return
+        end
+    end
+    self.enabled = false
+end
+
+function SignatureHelp:manage_cache()
+    local now = vim.loop.now()
+    local max_age = self.config.performance.cache_timeout or (60 * 1000) -- 1 minute default
+
+    for k, v in pairs(self.parameter_cache) do
+        if (now - v.timestamp) > max_age then
+            self.parameter_cache[k] = nil
+        end
+    end
+end
+
+function SignatureHelp:close_dock_window()
+    if self.dock_win and api.nvim_win_is_valid(self.dock_win) then
+        pcall(api.nvim_win_close, self.dock_win, true)
+    end
+    if self.dock_buf and api.nvim_buf_is_valid(self.dock_buf) then
+        pcall(api.nvim_buf_delete, self.dock_buf, { force = true })
+    end
+    self.dock_win = nil
+    self.dock_buf = nil
+end
+
+function SignatureHelp:apply_treesitter_highlighting()
+    local buf = self.config.behavior.dock_mode and self.dock_buf or self.buf
+    if not buf or not api.nvim_buf_is_valid(buf) then
+        return
+    end
+
+    if not pcall(require, "nvim-treesitter") then
+        return
+    end
+
+    -- Store current window and buffer
+    local current_win = api.nvim_get_current_win()
+    local current_buf = api.nvim_get_current_buf()
+
+    -- Apply treesitter highlighting
+    pcall(function()
+        require("nvim-treesitter.highlight").attach(buf, "markdown")
+    end)
+
+    -- Restore focus
+    api.nvim_set_current_win(current_win)
+    api.nvim_set_current_buf(current_buf)
+end
+
+function SignatureHelp:process_signature_result(result)
+    -- Process signature information
+    local active_sig_idx = result.activeSignature or 0
+    local sig = result.signatures[active_sig_idx + 1]
+
+    if sig then
+        -- Update cache
+        self.parameter_cache[sig.label] = {
+            count = (sig.parameters and #sig.parameters) or 0,
+            active = result.activeParameter or 0, -- Ensure default value
+            timestamp = vim.loop.now(),
+            signature = sig,
+            bufnr = ctx.bufnr,
+        }
+
+        -- Manage cache size with safe iteration
+        self:manage_cache()
+    end
+
+    -- Update state with safe assignment
+    self.last_active_parameter = result.activeParameter or 0
+    self:smart_refresh()
+end
 function SignatureHelp:create_window(contents)
 	-- Use the window module for creation
 	local win, buf = window.create_window(contents, self.config)
