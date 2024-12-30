@@ -25,6 +25,36 @@ function M.debounce(fn, ms)
     end
 end
 
+-- Check for completion menu visibility
+function M.is_completion_visible()
+    -- Check nvim-cmp
+    local has_cmp, cmp = pcall(require, "cmp")
+    if has_cmp and cmp.visible() then
+        return true
+    end
+
+    -- Check blink.cmp
+    local has_blink, blink = pcall(require, "blink.cmp")
+    if has_blink and blink.visible() then
+        return true
+    end
+
+    -- Check built-in completion
+    return vim.fn.pumvisible() == 1
+end
+
+-- Get cursor position relative to window
+function M.get_cursor_relative_pos()
+    local cursor_pos = vim.api.nvim_win_get_cursor(0)
+    local screen_pos = vim.fn.screenpos(0, cursor_pos[1], cursor_pos[2])
+    local win_pos = vim.api.nvim_win_get_position(0)
+    
+    return {
+        row = screen_pos.row - win_pos[1],
+        col = screen_pos.col - win_pos[2]
+    }
+end
+
 -- Safe function call wrapper with error handling
 function M.safe_call(fn, ...)
     local ok, result = pcall(fn, ...)
