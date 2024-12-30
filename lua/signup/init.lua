@@ -647,7 +647,7 @@ function SignatureHelp:setup_autocmds()
 			if cmp_visible then
 				self:hide()
 			elseif vim.fn.pumvisible() == 0 then
-				utils.debounced_trigger(function()
+				utils.debounce(function()
 					self:trigger()
 				end)
 			else
@@ -660,7 +660,7 @@ function SignatureHelp:setup_autocmds()
 		group = group,
 		callback = function()
 			if self.normal_mode_active then
-				utils.debounced_trigger(function()
+				utils.debounce(function()
 					self:trigger()
 				end)
 			end
