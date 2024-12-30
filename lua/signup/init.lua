@@ -203,7 +203,7 @@ end
 
 function SignatureHelp:check_capability()
     -- Simple check if LSP is available and has signature help capability
-    local clients = vim.lsp.get_active_clients({ bufnr = 0 })
+    local clients = vim.lsp.get_clients({ bufnr = 0 })
     for _, client in ipairs(clients) do
         if client.server_capabilities.signatureHelpProvider then
             self.enabled = true
