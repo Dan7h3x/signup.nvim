@@ -429,7 +429,7 @@ end
 
 function SignatureHelp:trigger()
 	-- Early return if not enabled
-	if not self.enabled then
+	if not self.enabled or vim.api.nvim_get_mode().mode:sub(1,1) ~= 'i' then
 		logger.debug("SignatureHelp not enabled")
 
 		return
@@ -639,73 +639,70 @@ function SignatureHelp:check_capability()
 end
 
 function SignatureHelp:setup_autocmds()
-	local group = api.nvim_create_augroup("LspSignatureHelp", { clear = true })
+    local group = api.nvim_create_augroup("LspSignatureHelp", { clear = true })
 
-	
+    api.nvim_create_autocmd({ "CursorMovedI", "TextChangedI" }, {
+        group = group,
+        callback = function()
+            local cmp_visible = require("cmp").visible()
+            if cmp_visible then
+                self:hide()
+            elseif vim.fn.pumvisible() == 0 then
+                utils.debounced_trigger(function() self:trigger() end)
+            else
+                self:hide()
+            end
+        end,
+    })
 
-	api.nvim_create_autocmd({ "CursorMovedI", "TextChangedI" }, {
-		group = group,
-		callback = function()
-			local cmp_visible = require("cmp").visible()
-			if cmp_visible then
-				self:hide()
-			elseif vim.fn.pumvisible() == 0 then
-				utils.debounced_trigger(function() self:trigger() end)
-			else
-				self:hide()
-			end
-		end,
-	})
+    api.nvim_create_autocmd({ "CursorMoved" }, {
+        group = group,
+        callback = function()
+            if self.normal_mode_active then
+                utils.debounced_trigger(function() self:trigger() end)
+            end
+        end,
+    })
+    api.nvim_create_autocmd({ "CursorMovedI" }, {
+        group = group,
+        callback = function()
+            if self.visible then
+                self:update_active_parameter()
+            end
+        end,
+    })
 
-	api.nvim_create_autocmd({ "CursorMoved" }, {
-		group = group,
-		callback = function()
-			if self.normal_mode_active then
-				utils.debounced_trigger(function() self:trigger() end)
-			end
-		end,
-	})
-	api.nvim_create_autocmd({ "CursorMovedI" }, {
-		group = group,
-		callback = function()
-			if self.visible then
-				self:update_active_parameter()
-			end
-		end,
-	})
+    api.nvim_create_autocmd({ "InsertLeave", "BufHidden", "BufLeave" }, {
+        group = group,
+        callback = function()
+            self:hide()
+            self.normal_mode_active = false
+        end,
+    })
 
-	api.nvim_create_autocmd({ "InsertLeave", "BufHidden", "BufLeave" }, {
-		group = group,
-		callback = function()
-			self:hide()
-			self.normal_mode_active = false
-		end,
-	})
+    api.nvim_create_autocmd("LspAttach", {
+        group = group,
+        callback = function()
+            vim.defer_fn(function()
+                self:check_capability()
+            end, 100)
+        end,
+    })
 
-	api.nvim_create_autocmd("LspAttach", {
-		group = group,
-		callback = function()
-			vim.defer_fn(function()
-				self:check_capability()
-			end, 100)
-		end,
-	})
-
-	api.nvim_create_autocmd("ColorScheme", {
-		group = group,
-		callback = function()
-			if self.visible then
-				self:apply_treesitter_highlighting()
-				self:set_active_parameter_highlights(
-					self.current_signatures.activeParameter,
-					self.current_signatures,
-					{}
-				)
-			end
-		end,
-	})
+    api.nvim_create_autocmd("ColorScheme", {
+        group = group,
+        callback = function()
+            if self.visible then
+                self:apply_treesitter_highlighting()
+                self:set_active_parameter_highlights(
+                    self.current_signatures.activeParameter,
+                    self.current_signatures,
+                    {}
+                )
+            end
+        end,
+    })
 end
-
 function SignatureHelp:display(result)
 	if not result or not result.signatures or #result.signatures == 0 then
 		self:hide()
