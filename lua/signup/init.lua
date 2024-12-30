@@ -433,6 +433,11 @@ function SignatureHelp:trigger()
 
 		return
 	end
+	-- Get current mode
+    local mode = vim.api.nvim_get_mode().mode
+    if mode:sub(1,1) ~= 'i' and not self.normal_mode_active then
+        return
+    end
 
 	-- Define trigger kinds
 	local TriggerKind = {
@@ -447,17 +452,10 @@ function SignatureHelp:trigger()
 	self.cmp_visible_cache = cmp_visible
 
 	-- Enhanced CMP overlap handling
-	if cmp_visible then
-		if self.config and self.config.behavior and self.config.behavior.avoid_cmp_overlap then
-			self:hide()
-			return
-		elseif self.config and self.config.behavior and self.config.behavior.dock_mode then
-			-- Safely access dock mode configuration
-			if type(self.config.behavior.dock_mode) == "table" then
-				self.config.behavior.dock_mode.position = "bottom"
-			end
-		end
-	end
+    if cmp_visible and self.config.behavior.avoid_cmp_overlap then
+        self:hide()
+        return
+    end
 
 	-- Get current buffer and position
 	local bufnr = vim.api.nvim_get_current_buf()
@@ -485,22 +483,19 @@ function SignatureHelp:trigger()
 
 	-- Find best client with signature help support
 	local signature_client
-	for _, client in ipairs(clients) do
-		if client.server_capabilities.signatureHelpProvider then
-			local trigger_chars = client.server_capabilities.signatureHelpProvider.triggerCharacters
-			if trigger_chars and #trigger_chars > 0 then
-				signature_client = client
-				break
-			end
-		end
-	end
+    for _, client in ipairs(clients) do
+        if client.server_capabilities.signatureHelpProvider then
+            signature_client = client
+            break
+        end
+    end
 
-	if not signature_client then
-		if not self.config.silent then
-			vim.notify("No LSP client with signature help capability", vim.log.levels.DEBUG)
-		end
-		return
-	end
+    if not signature_client then
+        if not self.config.silent then
+            logger.debug("No LSP client with signature help capability")
+        end
+        return
+    end
 
 	-- Get current line context
 	local line = vim.api.nvim_get_current_line()
@@ -522,110 +517,74 @@ function SignatureHelp:trigger()
 	local retrigger = self.visible and self.last_active_parameter ~= detected_param
 
 	-- Create custom position parameters
-	local position = {
-		textDocument = {
-			uri = uri,
-		},
-		position = {
-			line = row - 1, -- LSP uses 0-based line numbers
-			character = col,
-		},
-		context = {
-			triggerKind = valid_trigger and TriggerKind.TriggerCharacter or TriggerKind.ContentChange,
-			triggerCharacter = valid_trigger and trigger_char or nil,
-			isRetrigger = retrigger,
-			activeParameter = detected_param,
-		},
-	}
+	-- Create LSP position parameters
+    local params = {
+        textDocument = { uri = uri },
+        position = {
+            line = row - 1,
+            character = col,
+        },
+        context = {
+            triggerKind = valid_trigger and TriggerKind.TriggerCharacter or TriggerKind.ContentChange,
+            triggerCharacter = valid_trigger and trigger_char or nil,
+            isRetrigger = retrigger,
+            activeParameter = detected_param,
+        },
+    }
 
-	-- Cache current state
-	local current_state = {
-		line = line,
-		row = row,
-		col = col,
-		parameter = detected_param,
-		bufnr = bufnr,
-	}
+    -- Cache current state
+    local current_state = {
+        line = line,
+        row = row,
+        col = col,
+        parameter = detected_param,
+        bufnr = bufnr,
+    }
 
-	-- Make request with enhanced error handling
-	vim.lsp.buf_request(bufnr, "textDocument/signatureHelp", position, function(err, result, ctx)
-		-- Context validation
-		if not ctx.bufnr or not vim.api.nvim_buf_is_valid(ctx.bufnr) then
-			return
-		end
+    -- Make LSP request with debouncing
+    utils.debounce(function()
+        vim.lsp.buf_request(bufnr, "textDocument/signatureHelp", params, function(err, result, ctx)
+            if not ctx.bufnr or not vim.api.nvim_buf_is_valid(ctx.bufnr) then
+                return
+            end
 
-		-- Check for context changes with safe comparisons
-		if ctx.bufnr ~= current_state.bufnr then
-			return
-		end
+            -- Validate context hasn't changed significantly
+            if not self:validate_context(current_state, ctx) then
+                return
+            end
 
-		local new_line = vim.api.nvim_get_current_line()
-		local new_cursor = vim.api.nvim_win_get_cursor(0)
+            if err then
+                logger.debug("Signature help error: " .. tostring(err))
+                return
+            end
 
-		-- Safe cursor position comparison
-		if
-			new_line ~= current_state.line
-			or new_cursor[1] ~= current_state.row
-			or (new_cursor[2] and current_state.col and math.abs(new_cursor[2] - current_state.col) > 1)
-		then
-			return
-		end
+            if not result or not result.signatures or vim.tbl_isempty(result.signatures) then
+                if self.visible then
+                    self:hide()
+                end
+                return
+            end
 
-		-- Error handling
-		if err then
-			if not self.config.silent then
-				vim.notify("Signature help error: " .. tostring(err), vim.log.levels.WARN)
-			end
-			return
-		end
-
-		-- Result validation
-		if not result or not result.signatures or vim.tbl_isempty(result.signatures) then
-			if self.visible then
-				self:hide()
-			end
-			return
-		end
-
-		-- Process signature information with nil checks
-		local active_sig_idx = result.activeSignature or 0
-		local sig = result.signatures[active_sig_idx + 1]
-
-		if sig then
-			-- Enhanced caching with timestamp and nil checks
-			self.parameter_cache[sig.label] = {
-				count = (sig.parameters and #sig.parameters) or 0,
-				active = result.activeParameter or 0, -- Ensure default value
-				timestamp = vim.loop.now(),
-				signature = sig,
-				bufnr = ctx.bufnr,
-			}
-
-			-- Manage cache size with safe iteration
-			--
-			self:manage_cache()
-		end
-
-		-- Update state with safe assignment
-		self.last_active_parameter = result.activeParameter or 0
-		self:smart_refresh()
-
-		-- Display with debouncing and safe access
-		local debounce_time = self.config.performance and self.config.performance.debounce_time or 0
-
-		if debounce_time > 0 then
-			if self.display_timer then
-				pcall(vim.fn.timer_stop, self.display_timer)
-			end
-			self.display_timer = vim.fn.timer_start(debounce_time, function()
-				self:display(result)
-			end)
-		else
-			self:display(result)
-		end
-	end)
+            self:process_signature_result(result)
+        end)
+    end, self.config.behavior.debounce or 50)
 end
+function SignatureHelp:validate_context(old_state, ctx)
+    if ctx.bufnr ~= old_state.bufnr then
+        return false
+    end
 
+    local new_line = vim.api.nvim_get_current_line()
+    local new_cursor = vim.api.nvim_win_get_cursor(0)
+
+    if new_line ~= old_state.line 
+        or new_cursor[1] ~= old_state.row 
+        or math.abs((new_cursor[2] or 0) - (old_state.col or 0)) > 1 then
+        return false
+    end
+
+    return true
+end
 function SignatureHelp:check_capability()
 	local clients = vim.lsp.get_clients()
 	for _, client in ipairs(clients) do
@@ -635,6 +594,31 @@ function SignatureHelp:check_capability()
 		end
 	end
 	self.enabled = false
+end
+
+function SignatureHelp:process_signature_result(result)
+    -- Process signature information
+    local active_sig_idx = result.activeSignature or 0
+    local sig = result.signatures[active_sig_idx + 1]
+
+    if sig then
+        -- Update cache
+        self.parameter_cache[sig.label] = {
+            count = (sig.parameters and #sig.parameters) or 0,
+            active = result.activeParameter or 0,
+            timestamp = vim.loop.now(),
+            signature = sig,
+        }
+
+        -- Manage cache size
+        self:manage_cache()
+
+        -- Update state
+        self.last_active_parameter = result.activeParameter or 0
+        
+        -- Display result
+        self:display(result)
+    end
 end
 
 function SignatureHelp:setup_autocmds()
@@ -707,68 +691,83 @@ function SignatureHelp:setup_autocmds()
 	})
 end
 function SignatureHelp:display(result)
-	if not result or not result.signatures or #result.signatures == 0 then
-		self:hide()
-		return
-	end
+    if not result or not result.signatures or #result.signatures == 0 then
+        self:hide()
+        return
+    end
 
-	-- Safe signature comparison
-	if self.visible and self.current_signatures then
-		local current_sig = self.current_signatures[self.current_signature_idx or 1]
-		local new_sig = result.signatures[result.activeSignature or 0]
-		local current_param = self.last_active_parameter or 0
-		local new_param = result.activeParameter or 0
+    -- Check if we need to update
+    if self:should_skip_update(result) then
+        return
+    end
 
-		if current_sig and new_sig and current_sig.label == new_sig.label and current_param == new_param then
-			return
-		end
-	end
+    -- Update current state
+    self:update_current_state(result)
 
-	-- Store current signatures with safe values
-	self.current_signatures = result.signatures
-	self.current_active_parameter = result.activeParameter or 0
-	self.current_signature_idx = (result.activeSignature and result.activeSignature + 1) or 1
+    -- Format content
+    local ok, contents, labels = pcall(self.format_signature_list, self, result.signatures)
+    if not ok or not contents or #contents == 0 then
+        logger.error("Error formatting signature: " .. (contents or "unknown error"))
+        return
+    end
 
-	-- Safely convert to markdown and get labels
-	local ok, contents, labels = pcall(self.format_signature_list, self, result.signatures)
-	if not ok or not contents then
-		vim.notify("Error formatting signature: " .. (contents or "unknown error"), vim.log.levels.ERROR)
-		return
-	end
+    -- Create or update window
+    if self.config.behavior.dock_mode then
+        self:create_dock_display(contents, result)
+    else
+        self:create_float_display(contents, result, labels)
+    end
+end
+function SignatureHelp:should_skip_update(result)
+    if not self.visible or not self.current_signatures then
+        return false
+    end
 
-	if #contents > 0 then
-		if self.config.behavior and self.config.behavior.dock_mode then
-			local win, buf = self:create_dock_window()
-			if win and buf then
-				-- Set content with error handling
-				pcall(api.nvim_buf_set_lines, buf, 0, -1, false, contents)
-				pcall(vim.lsp.util.stylize_markdown, buf, contents, {})
-				pcall(self.set_dock_parameter_highlights, self, result.activeParameter or 0, result.signatures)
-				self.visible = true
-				-- Add parameter indicators after window creation
-				if self.config.parameter_indicators.enabled then
-					self:add_parameter_indicators()
-				end
-			end
-		else
-			local win, buf = self:create_window(contents)
-			if win and buf then
-				pcall(
-					self.set_active_parameter_highlights,
-					self,
-					result.activeParameter or 0,
-					result.signatures,
-					labels
-				)
-				-- Add parameter indicators after window creation
-				if self.config.parameter_indicators.enabled then
-					self:add_parameter_indicators()
-				end
-			end
-		end
-	end
+    local current_sig = self.current_signatures[self.current_signature_idx or 1]
+    local new_sig = result.signatures[result.activeSignature or 0]
+    local current_param = self.last_active_parameter or 0
+    local new_param = result.activeParameter or 0
+
+    return current_sig 
+        and new_sig 
+        and current_sig.label == new_sig.label 
+        and current_param == new_param
 end
 
+function SignatureHelp:update_current_state(result)
+    self.current_signatures = result.signatures
+    self.current_active_parameter = result.activeParameter or 0
+    self.current_signature_idx = (result.activeSignature and result.activeSignature + 1) or 1
+end
+
+function SignatureHelp:create_dock_display(contents, result)
+    local win, buf = self:create_dock_window()
+    if win and buf then
+        pcall(api.nvim_buf_set_lines, buf, 0, -1, false, contents)
+        pcall(vim.lsp.util.stylize_markdown, buf, contents, {})
+        pcall(self.set_dock_parameter_highlights, self, result.activeParameter or 0, result.signatures)
+        self.visible = true
+        
+        if self.config.parameter_indicators.enabled then
+            self:add_parameter_indicators()
+        end
+    end
+end
+
+function SignatureHelp:create_float_display(contents, result, labels)
+    local win, buf = self:create_window(contents)
+    if win and buf then
+        pcall(self.set_active_parameter_highlights, self,
+            result.activeParameter or 0,
+            result.signatures,
+            labels
+        )
+        
+        if self.config.parameter_indicators.enabled then
+            self:add_parameter_indicators()
+        end
+    end
+end
 -- function SignatureHelp:format_signature_list(signatures)
 --     if not signatures or type(signatures) ~= "table" then
 --         return {}, {}
