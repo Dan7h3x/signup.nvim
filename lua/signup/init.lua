@@ -621,7 +621,77 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
     -- Reapply other highlights
     self:highlight_icons(buf)
 end
+function SignatureHelp:format_signature_line(signature, idx, show_index)
+    local lines = {}
+    
+    -- Format header
+    local header = ""
+    if show_index then
+        header = string.format("%d/%d ", idx, #self.current_signatures)
+    end
+    header = header .. self.config.icons.method .. " "
 
+    -- Format signature label
+    local label = signature.label
+    if signature.parameters and #signature.parameters > 0 then
+        local active_param = self.current_active_parameter or 0
+        local parts = {}
+        local last_pos = 1
+
+        for i, param in ipairs(signature.parameters) do
+            local start_pos, end_pos
+            if type(param.label) == "table" then
+                start_pos, end_pos = param.label[1] + 1, param.label[2]
+            else
+                start_pos = label:find(vim.pesc(param.label), last_pos, true)
+                if start_pos then
+                    end_pos = start_pos + #param.label - 1
+                end
+            end
+
+            if start_pos and end_pos then
+                -- Add text before parameter
+                table.insert(parts, label:sub(last_pos, start_pos - 1))
+                
+                -- Add parameter with highlighting if active
+                local param_text = label:sub(start_pos, end_pos)
+                if i == active_param + 1 then
+                    param_text = string.format("<%s>", param_text)
+                end
+                table.insert(parts, param_text)
+                
+                last_pos = end_pos + 1
+            end
+        end
+        
+        -- Add remaining text
+        if last_pos <= #label then
+            table.insert(parts, label:sub(last_pos))
+        end
+        
+        label = table.concat(parts)
+    end
+
+    -- Add formatted line
+    table.insert(lines, header .. label)
+
+    -- Add parameter details if available
+    if signature.parameters and self.config.ui.show_header then
+        for i, param in ipairs(signature.parameters) do
+            local param_line = string.format("  %s%s: %s",
+                self.config.icons.parameter,
+                param.label,
+                param.documentation and (
+                    type(param.documentation) == "string" and param.documentation or
+                    param.documentation.value
+                ) or ""
+            )
+            table.insert(lines, param_line)
+        end
+    end
+
+    return lines
+end
 function SignatureHelp:format_signature_list(signatures)
     if not signatures or type(signatures) ~= "table" then
         return {}, {}
@@ -864,27 +934,50 @@ end
 function SignatureHelp:setup_autocmds()
     local group = api.nvim_create_augroup("SignatureHelp", { clear = true })
 
-    -- Auto-trigger in insert mode
-    api.nvim_create_autocmd("InsertEnter", {
-        group = group,
-        callback = function()
-            utils.debounce(function() self:trigger() end, self.config.behavior.debounce)
-        end
-    })
+    if self.config.behavior.auto_trigger then
+        -- Trigger on insert mode entry
+        api.nvim_create_autocmd("InsertEnter", {
+            group = group,
+            callback = function()
+                utils.debounce(function() self:trigger() end, self.config.behavior.debounce)
+            end
+        })
 
-    -- Update on cursor movement in insert mode
-    api.nvim_create_autocmd("CursorMovedI", {
-        group = group,
-        callback = function()
-            utils.debounce(function() self:trigger() end, self.config.behavior.debounce)
-        end
-    })
+        -- Trigger on typing trigger characters
+        api.nvim_create_autocmd("TextChangedI", {
+            group = group,
+            callback = function()
+                local char = vim.fn.strcharpart(vim.fn.getline('.'):sub(vim.fn.col('.') - 1), 0, 1)
+                if vim.tbl_contains(self.config.behavior.trigger_chars, char) then
+                    utils.debounce(function() self:trigger() end, self.config.behavior.debounce)
+                end
+            end
+        })
 
-    -- Hide on leaving insert mode
+        -- Update on cursor movement in insert mode
+        api.nvim_create_autocmd("CursorMovedI", {
+            group = group,
+            callback = function()
+                utils.debounce(function() self:smart_refresh() end, self.config.behavior.debounce)
+            end
+        })
+    end
+
+    -- Hide on leaving insert mode (unless in normal mode)
     api.nvim_create_autocmd("InsertLeave", {
         group = group,
         callback = function()
             if not self.normal_mode_active then
+                self:hide()
+            end
+        end
+    })
+
+    -- Update on completion menu changes
+    api.nvim_create_autocmd("CompleteChanged", {
+        group = group,
+        callback = function()
+            if utils.is_completion_visible() and self.config.behavior.avoid_cmp_overlap then
                 self:hide()
             end
         end
@@ -910,6 +1003,84 @@ function SignatureHelp:setup_autocmds()
             end
         end
     })
+
+    -- Handle buffer changes
+    api.nvim_create_autocmd("BufEnter", {
+        group = group,
+        callback = function()
+            if self.visible then
+                self:smart_refresh()
+            end
+        end
+    })
+end
+
+-- Add toggle normal mode functionality
+function SignatureHelp:toggle_normal_mode()
+    self.normal_mode_active = not self.normal_mode_active
+    if self.normal_mode_active then
+        self:trigger()
+    else
+        self:hide()
+    end
+end
+
+-- Improve the trigger method
+function SignatureHelp:trigger()
+    -- Early return if no LSP capability
+    if not self:check_capability() then
+        return
+    end
+
+    -- Get current context
+    local context = self:detect_signature_context()
+    if not context.method_name then
+        self:hide()
+        return
+    end
+
+    -- Request signature help
+    vim.lsp.buf.signature_help({
+        bufnr = vim.api.nvim_get_current_buf(),
+        handler = vim.schedule_wrap(function(err, result, ctx)
+            if err or not result or vim.tbl_isempty(result.signatures) then
+                self:hide()
+                return
+            end
+            
+            -- Process and display result
+            self:process_signature_result(result)
+            self:display(result)
+            
+            -- Add to history if enabled
+            if self.config.features.history then
+                self:add_to_history()
+            end
+        end)
+    })
+end
+
+function SignatureHelp:update_parameter(direction)
+    if not self.current_signatures or not self.current_signature_idx then
+        return
+    end
+
+    local sig = self.current_signatures[self.current_signature_idx]
+    if not sig or not sig.parameters then
+        return
+    end
+
+    local param_count = #sig.parameters
+    local new_param = self.current_active_parameter
+
+    if direction == "next" then
+        new_param = (new_param + 1) % param_count
+    else
+        new_param = (new_param - 1 + param_count) % param_count
+    end
+
+    self.current_active_parameter = new_param
+    self:refresh_display()
 end
 function SignatureHelp:setup_keymaps()
     -- Setup toggle keys using the actual config
@@ -1284,39 +1455,39 @@ end
 
 
 
-function SignatureHelp:trigger()
-    -- Early return if no LSP capability
-    if not self:check_capability() then
-        return
-    end
+-- function SignatureHelp:trigger()
+--     -- Early return if no LSP capability
+--     if not self:check_capability() then
+--         return
+--     end
 
-    -- Get current context
-    local context = self:detect_signature_context()
-    if not context.method_name then
-        self:hide()
-        return
-    end
+--     -- Get current context
+--     local context = self:detect_signature_context()
+--     if not context.method_name then
+--         self:hide()
+--         return
+--     end
 
-    -- Request signature help safely
-    local bufnr = vim.api.nvim_get_current_buf()
-    vim.lsp.buf.signature_help({
-        bufnr = bufnr,
-        handler = vim.schedule_wrap(function(err, result, ctx)
-            if err or not result or not result.signatures or #result.signatures == 0 then
-                return
-            end
+--     -- Request signature help safely
+--     local bufnr = vim.api.nvim_get_current_buf()
+--     vim.lsp.buf.signature_help({
+--         bufnr = bufnr,
+--         handler = vim.schedule_wrap(function(err, result, ctx)
+--             if err or not result or not result.signatures or #result.signatures == 0 then
+--                 return
+--             end
             
-            -- Process and display result
-            self:process_signature_result(result)
-            self:display(result)
+--             -- Process and display result
+--             self:process_signature_result(result)
+--             self:display(result)
             
-            -- Add to history if enabled
-            if self.config.features.history then
-                self:add_to_history()
-            end
-        end)
-    })
-end
+--             -- Add to history if enabled
+--             if self.config.features.history then
+--                 self:add_to_history()
+--             end
+--         end)
+--     })
+-- end
 function SignatureHelp:hide()
     -- Close main window
     if self.win and vim.api.nvim_win_is_valid(self.win) then
@@ -1362,29 +1533,6 @@ function SignatureHelp:smart_refresh()
     -- Update window position if following cursor
     if self.config.position.follow_cursor and not self.current.dock_mode then
         require('signup.window').update_window_position(self.win, self.config)
-    end
-end
-
--- Add to M table at the end
-function M.trigger()
-    if M._instance then
-        M._instance:trigger()
-    end
-end
-
-function M.hide()
-    if M._instance then
-        M._instance:hide()
-    end
-end
-
-function M.toggle()
-    if M._instance then
-        if M._instance.visible then
-            M._instance:hide()
-        else
-            M._instance:trigger()
-        end
     end
 end
 
