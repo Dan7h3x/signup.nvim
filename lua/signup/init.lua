@@ -100,7 +100,7 @@ local default_config = {
 		max_signature_length = 100, -- Max signature length
 	},
 	keymaps = {
-		toggle = "<A-k>", -- Toggle signature help
+		toggle = "<C-k>", -- Toggle signature help
 		next_signature = "<C-j>", -- Next signature
 		prev_signature = "<C-h>", -- Previous signature
 		next_parameter = "<C-l>", -- Next parameter
@@ -1004,74 +1004,74 @@ function SignatureHelp:setup_keymaps()
 end
 
 function SignatureHelp:setup_autocmds()
-	local group = api.nvim_create_augroup("LspSignatureHelp", { clear = true })
+    local group = api.nvim_create_augroup("LspSignatureHelp", { clear = true })
 
-	api.nvim_create_autocmd({ "CursorMovedI", "TextChangedI" }, {
-		group = group,
-		callback = function()
-			local cmp_visible = require("cmp").visible()
-			if cmp_visible then
-				self:hide()
-			elseif vim.fn.pumvisible() == 0 and not self.normal_mode_active then
-				utils.debounce(function()
-					self:trigger()
-				end, self.config.behavior.debounce)
-			else
-				self:hide()
-			end
-		end,
-	})
+    api.nvim_create_autocmd({ "CursorMovedI", "TextChangedI" }, {
+        group = group,
+        callback = function()
+            local cmp_visible = require("cmp").visible()
+            if cmp_visible then
+                self:hide()
+            elseif vim.fn.pumvisible() == 0 and not self.normal_mode_active then
+                utils.debounce(function()
+                    self:trigger()
+                end, self.config.behavior.debounce)
+            else
+                self:hide()
+            end
+        end,
+    })
 
-	api.nvim_create_autocmd({ "CursorMoved" }, {
-		group = group,
-		callback = function()
-			if self.normal_mode_active then
-				utils.debounce(function()
-					self:trigger()
-				end)
-			end
-		end,
-	})
-	api.nvim_create_autocmd({ "CursorMovedI" }, {
-		group = group,
-		callback = function()
-			if self.visible then
-				self:update_active_parameter()
-			end
-		end,
-	})
+    api.nvim_create_autocmd({ "CursorMoved" }, {
+        group = group,
+        callback = function()
+            if self.normal_mode_active then
+                utils.debounce(function()
+                    self:trigger()
+                end)
+            end
+        end,
+    })
+    api.nvim_create_autocmd({ "CursorMovedI" }, {
+        group = group,
+        callback = function()
+            if self.visible then
+                self:update_active_parameter()
+            end
+        end,
+    })
 
-	api.nvim_create_autocmd({ "InsertLeave", "BufHidden", "BufLeave" }, {
-		group = group,
-		callback = function()
-			if not self.normal_mode_active then
-				self:hide()
-			end
-		end,
-	})
+    api.nvim_create_autocmd({ "InsertLeave", "BufHidden", "BufLeave" }, {
+        group = group,
+        callback = function()
+            if not self.normal_mode_active then
+                self:hide()
+            end
+        end,
+    })
 
-	api.nvim_create_autocmd("LspAttach", {
-		group = group,
-		callback = function()
-			vim.defer_fn(function()
-				self:check_capability()
-			end, 100)
-		end,
-	})
+    api.nvim_create_autocmd("LspAttach", {
+        group = group,
+        callback = function()
+            vim.defer_fn(function()
+                self:check_capability()
+            end, 100)
+        end,
+    })
 
-	api.nvim_create_autocmd("ColorScheme", {
-		group = group,
-		callback = function()
-			if self.visible then
-				self:apply_treesitter_highlighting()
-				self:set_active_parameter_highlights(
-					self.current_signatures.activeParameter,
-					self.current_signatures,
-					{}
-				)
-			end
-		end,
-	})
+    api.nvim_create_autocmd("ColorScheme", {
+        group = group,
+        callback = function()
+            if self.visible then
+                self:apply_treesitter_highlighting()
+                self:set_active_parameter_highlights(
+                    self.current_signatures.activeParameter,
+                    self.current_signatures,
+                    {}
+                )
+            end
+        end,
+    })
 end
 
 function SignatureHelp:setup_dock_autocmds()
@@ -1789,59 +1789,38 @@ function M.setup(opts)
         logger.warn("signup.nvim already initialized")
         return M._instance
     end
-
     return utils.safe_call(function()
-        -- Create new instance with default config
+        opts = opts or {}
+        if type(opts) ~= "table" then
+            error("Configuration must be a table")
+        end
+        -- Create new instance
         local instance = SignatureHelp.new()
+        instance.config.behavior = vim.tbl_deep_extend("force", {
+            avoid_cmp_overlap = true,
+            dock_mode = false,
+            auto_trigger = true,
+            trigger_chars = { "(", "," },
+            close_on_done = true,
+            dock_position = "bottom",
+            debounce = 50,
+            prefer_active = true,
+        }, opts.behavior or {})
+        -- Merge configurations
+        instance.config = vim.tbl_deep_extend("force", instance.config, opts)
 
-        -- Handle different opts cases
-        if opts then
-            if type(opts) ~= "table" then
-                error("Configuration must be a table")
-            end
-
-            -- Deep merge behavior config first if it exists
-            if opts.behavior then
-                instance.config.behavior = vim.tbl_deep_extend("force", 
-                    instance.config.behavior, 
-                    opts.behavior
-                )
-            end
-
-            -- Deep merge the rest of the config
-            for key, value in pairs(opts) do
-                if key ~= "behavior" then
-                    if type(value) == "table" and type(instance.config[key]) == "table" then
-                        instance.config[key] = vim.tbl_deep_extend("force", 
-                            instance.config[key], 
-                            value
-                        )
-                    else
-                        instance.config[key] = value
-                    end
-                end
-            end
-        end
-
-        -- Validate merged config
-        local ok, err = pcall(validate_config, instance.config)
-        if not ok then
-            error("Invalid configuration: " .. err)
-        end
-
-        -- Setup instance with merged config
         local setup_ok, setup_err = pcall(function()
             instance:setup_highlights()
             instance:setup_autocmds()
             instance:setup_keymaps()
             instance:setup_dock_autocmds()
-            instance:setup_virtual_text()
-            instance:setup_language_specific_handlers()
-            -- instance:setup_completion_integration()
+            instance:setup_virtual_text() -- New
+            instance:setup_language_specific_handlers() -- New
         end)
 
         if not setup_ok then
-            error("Failed to setup signup.nvim: " .. tostring(setup_err))
+            vim.notify("Failed to setup signup.nvim: " .. tostring(setup_err), vim.log.levels.ERROR)
+            return nil
         end
 
         -- Setup cleanup on exit
@@ -1852,7 +1831,6 @@ function M.setup(opts)
                 end
             end,
         })
-
         -- Store instance
         M._initialized = true
         M._instance = instance
@@ -1866,57 +1844,36 @@ function M.update(opts)
         return M.setup(opts)
     end
 
-    return utils.safe_call(function()
-        local instance = M._instance
-
-        if opts then
-            if type(opts) ~= "table" then
-                error("Configuration must be a table")
-            end
-
-            -- Deep merge behavior config first if it exists
-            if opts.behavior then
-                instance.config.behavior = vim.tbl_deep_extend("force", 
-                    instance.config.behavior, 
-                    opts.behavior
-                )
-            end
-
-            -- Deep merge the rest of the config
-            for key, value in pairs(opts) do
-                if key ~= "behavior" then
-                    if type(value) == "table" and type(instance.config[key]) == "table" then
-                        instance.config[key] = vim.tbl_deep_extend("force", 
-                            instance.config[key], 
-                            value
-                        )
-                    else
-                        instance.config[key] = value
-                    end
-                end
+    -- Merge new options with existing config
+    local instance = M._instance
+    local function update_config(base, new)
+        for k, v in pairs(new) do
+            if type(v) == "table" and type(base[k]) == "table" then
+                update_config(base[k], v)
+            else
+                base[k] = v
             end
         end
+    end
 
-        -- Validate updated config
-        local ok, err = pcall(validate_config, instance.config)
-        if not ok then
-            error("Invalid configuration update: " .. err)
-        end
+    -- Safely update configuration
+    pcall(update_config, instance.config, opts or {})
 
-        -- Refresh instance with updated config
+    -- Refresh highlights and windows
+    pcall(function()
         instance:setup_highlights()
         if instance.visible then
+            -- Refresh current display
             instance:display({
                 signatures = instance.current_signatures,
                 activeParameter = instance.current_active_parameter,
                 activeSignature = instance.current_signature_idx and (instance.current_signature_idx - 1) or 0,
             })
         end
-
-        return instance
     end)
-end
 
+    return instance
+end
 -- Health Check
 function M.health()
 	local health = require("health")
