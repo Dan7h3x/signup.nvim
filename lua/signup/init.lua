@@ -11,29 +11,29 @@ local default_config = {
 	-- UI configuration
 	ui = {
 		border = "rounded", -- Border style: 'single', 'double', 'rounded', 'solid'
-		max_width = 80, -- Maximum width of signature window
-		max_height = 5, -- Maximum height of signature window
+		max_width = 40, -- Maximum width of signature window
+		max_height = 7, -- Maximum height of signature window
 		min_width = 40, -- Minimum width of signature window
 		padding = 1, -- Padding inside the window
 		spacing = 1, -- Spacing between signature elements
-		opacity = 0.9, -- Window opacity (1.0 is fully opaque)
+		opacity = 0.8, -- Window opacity (1.0 is fully opaque)
 		zindex = 50, -- Z-index of the window
 	},
 	parameter_indicators = {
-        enabled = true,
-        active_symbol = "●",
-        inactive_symbol = "○",
-    },
+		enabled = true,
+		active_symbol = "●",
+		inactive_symbol = "○",
+	},
 	highlights = {
-        icons = true,
-        parameters = true,
-        indicators = true,
-    },
-    position = {
-        prefer_above = true,
-        padding = 1,
-        avoid_cursor = true,
-    },
+		icons = true,
+		parameters = true,
+		indicators = true,
+	},
+	position = {
+		prefer_above = true,
+		padding = 1,
+		avoid_cursor = true,
+	},
 
 	-- Colors and highlights
 	colors = {
@@ -79,7 +79,7 @@ local default_config = {
 
 	-- Keymaps
 	keymaps = {
-		toggle = "<C-k>", -- Toggle signature window
+		toggle = "<A-k>", -- Toggle signature window
 		next_signature = "<C-j>", -- Next signature
 		prev_signature = "<C-h>", -- Previous signature
 		next_parameter = "<C-l>", -- Next parameter
@@ -88,16 +88,16 @@ local default_config = {
 	},
 }
 
--- Initialize new instance
 function SignatureHelp.new()
-	local self = setmetatable({
+    local self = setmetatable({
         win = nil,
         buf = nil,
-        highlight_ns = vim.api.nvim_create_namespace('SignatureHelpHighlight'),
+        dock_win = nil,
+        dock_buf = nil,
+        highlight_ns = vim.api.nvim_create_namespace("SignatureHelpHighlight"),
         last_context = nil,
         visible = false,
         config = vim.deepcopy(default_config),
-        cache = {},
         current = {
             signatures = nil,
             active_sig = 1,
@@ -114,100 +114,66 @@ function SignatureHelp.new()
         parameter_cache = {},
     }, SignatureHelp)
 
-	-- Initialize cache with timestamp
-	self.cache = setmetatable({}, {
-		__index = function(t, k)
-			local v = rawget(t, k)
-			if v then
-				v.timestamp = vim.loop.now()
-			end
-			return v
-		end,
-	})
-
-	-- Ensure detect_active_parameter method exists
-	if not self.detect_active_parameter then
-		self.detect_active_parameter = function()
-			local cursor_pos = vim.api.nvim_win_get_cursor(0)
-			local line = vim.api.nvim_get_current_line()
-			local line_to_cursor = line:sub(1, cursor_pos[2])
-
-			local open_count = 0
-			local param_index = 0
-
-			for i = 1, #line_to_cursor do
-				local char = line_to_cursor:sub(i, i)
-				if char == "(" then
-					open_count = open_count + 1
-				elseif char == ")" then
-					open_count = open_count - 1
-				elseif char == "," and open_count == 1 then
-					param_index = param_index + 1
-				end
-			end
-
-			return open_count > 0 and param_index or 0
-		end
-	end
-
-	return self
+    return self
 end
 
 -- Window Management Methods
 function SignatureHelp:create_window(contents)
-	-- Create or reuse buffer
-	if not self.buf or not api.nvim_buf_is_valid(self.buf) then
-		self.buf = api.nvim_create_buf(false, true)
-		vim.bo[self.buf].buftype = "nofile"
-		vim.bo[self.buf].bufhidden = "hide"
-		vim.bo[self.buf].swapfile = false
-		vim.bo[self.buf].filetype = "SignatureHelp"
-	end
+    -- Create or reuse buffer
+    if not self.buf or not api.nvim_buf_is_valid(self.buf) then
+        self.buf = api.nvim_create_buf(false, true)
+        vim.bo[self.buf].buftype = "nofile"
+        vim.bo[self.buf].bufhidden = "hide"
+        vim.bo[self.buf].swapfile = false
+        vim.bo[self.buf].filetype = "SignatureHelp"
+    end
 
-	-- Calculate window dimensions
-	local width = math.min(math.max(#contents[1] + 4, self.config.ui.min_width), self.config.ui.max_width, vim.o.columns)
-	local height = math.min(#contents, self.config.ui.max_height)
+    -- Calculate window dimensions
+    local width = math.min(math.max(#contents[1] + 4, self.config.ui.min_width), self.config.ui.max_width, vim.o.columns)
+    local height = math.min(#contents, self.config.ui.max_height)
 
-	-- Create window options based on mode
-	local opts = self:get_window_opts(width, height)
-	local pos = self:calculate_window_position()
+    -- Get window position and options
+    local pos = self:calculate_window_position()
     local opts = self:get_window_opts(width, height)
     opts.row = pos.row
     opts.col = pos.col
 
-	-- Create or update window
-	if not self.win or not api.nvim_win_is_valid(self.win) then
-		self.win = api.nvim_open_win(self.buf, false, opts)
+    -- Create or update window
+    if not self.win or not api.nvim_win_is_valid(self.win) then
+        self.win = api.nvim_open_win(self.buf, false, opts)
 
-		-- Set window options
-		local win_opts = {
-			wrap = false,
-			foldenable = false,
-			winblend = math.floor((1 - self.config.ui.opacity) * 100),
-			winhighlight = table.concat({
-				"Normal:SignatureHelpNormal",
-				"FloatBorder:SignatureHelpBorder",
-				"CursorLine:SignatureHelpCursorLine",
-			}, ","),
-			signcolumn = "no",
-			cursorline = false,
-			number = false,
-			relativenumber = false,
-		}
+        -- Set window options
+        local win_opts = {
+            wrap = true,
+            foldenable = false,
+            winblend = math.floor((1 - self.config.ui.opacity) * 100),
+            winhighlight = table.concat({
+                "Normal:SignatureHelpNormal",
+                "FloatBorder:SignatureHelpBorder",
+                "CursorLine:SignatureHelpCursorLine",
+            }, ","),
+            signcolumn = "no",
+            cursorline = false,
+            number = false,
+            relativenumber = false,
+            linebreak = true,
+            breakindent = true,
+            showbreak = "↪ ",
+        }
 
-		for opt, val in pairs(win_opts) do
-			vim.wo[self.win][opt] = val
-		end
-	else
-		api.nvim_win_set_config(self.win, opts)
-	end
+        for opt, val in pairs(win_opts) do
+            vim.wo[self.win][opt] = val
+        end
+    else
+        api.nvim_win_set_config(self.win, opts)
+    end
 
-	-- Set content and apply highlighting
-	api.nvim_buf_set_lines(self.buf, 0, -1, false, contents)
-	self:apply_highlights()
+    -- Set content and apply highlighting
+    api.nvim_buf_set_lines(self.buf, 0, -1, false, contents)
+    self:apply_highlights()
 
-	self.visible = true
-	return self.win, self.buf
+    self.visible = true
+    return self.win, self.buf
 end
 
 function SignatureHelp:get_window_opts(width, height)
@@ -232,6 +198,45 @@ function SignatureHelp:get_window_opts(width, height)
 	}
 end
 
+function SignatureHelp:detect_active_parameter()
+    local cursor_pos = vim.api.nvim_win_get_cursor(0)
+    local line = vim.api.nvim_get_current_line()
+    local line_to_cursor = line:sub(1, cursor_pos[2])
+
+    -- Track nested parentheses and strings
+    local open_count = 0
+    local param_index = 0
+    local in_string = false
+    local string_char = nil
+
+    for i = 1, #line_to_cursor do
+        local char = line_to_cursor:sub(i, i)
+
+        -- Handle string detection
+        if char == '"' or char == "'" then
+            if not in_string then
+                in_string = true
+                string_char = char
+            elseif string_char == char then
+                in_string = false
+                string_char = nil
+            end
+        end
+
+        -- Skip if in string
+        if not in_string then
+            if char == "(" then
+                open_count = open_count + 1
+            elseif char == ")" then
+                open_count = open_count - 1
+            elseif char == "," and open_count > 0 then
+                param_index = param_index + 1
+            end
+        end
+    end
+
+    return open_count > 0 and param_index or nil
+end
 function SignatureHelp:get_dock_window_opts(width, height)
 	local editor_width = vim.o.columns
 	local editor_height = vim.o.lines
@@ -375,65 +380,29 @@ function SignatureHelp:apply_highlights()
 	end
 end
 function SignatureHelp:update_active_parameter()
-    local current_param = self:detect_active_parameter()
-    if current_param ~= self.current_active_parameter then
-        self.current_active_parameter = current_param
-        if self.visible then
-            self:refresh_display()
-        end
-    end
+	local current_param = self:detect_active_parameter()
+	if current_param ~= self.current_active_parameter then
+		self.current_active_parameter = current_param
+		if self.visible then
+			self:refresh_display()
+		end
+	end
 end
 
 function SignatureHelp:refresh_display()
-    if not self.current_signatures then return end
-    
-    local result = {
-        signatures = self.current_signatures,
-        activeParameter = self.current_active_parameter,
-        activeSignature = self.current_signature_idx and (self.current_signature_idx - 1) or 0
-    }
-    
-    self:display(result)
+	if not self.current_signatures then
+		return
+	end
+
+	local result = {
+		signatures = self.current_signatures,
+		activeParameter = self.current_active_parameter,
+		activeSignature = self.current_signature_idx and (self.current_signature_idx - 1) or 0,
+	}
+
+	self:display(result)
 end
-function SignatureHelp:detect_active_parameter()
-    local cursor_pos = vim.api.nvim_win_get_cursor(0)
-    local line = vim.api.nvim_get_current_line()
-    local line_to_cursor = line:sub(1, cursor_pos[2])
-    
-    -- Track nested parentheses and strings
-    local open_count = 0
-    local param_index = 0
-    local in_string = false
-    local string_char = nil
-    
-    for i = 1, #line_to_cursor do
-        local char = line_to_cursor:sub(i, i)
-        
-        -- Handle string detection
-        if char == '"' or char == "'" then
-            if not in_string then
-                in_string = true
-                string_char = char
-            elseif string_char == char then
-                in_string = false
-                string_char = nil
-            end
-        end
-        
-        -- Skip if in string
-        if not in_string then
-            if char == "(" then
-                open_count = open_count + 1
-            elseif char == ")" then
-                open_count = open_count - 1
-            elseif char == "," and open_count > 0 then
-                param_index = param_index + 1
-            end
-        end
-    end
-    
-    return open_count > 0 and param_index or nil
-end
+
 function SignatureHelp:trigger()
 	-- Early return if not enabled
 	if not self.enabled then
@@ -608,7 +577,7 @@ function SignatureHelp:trigger()
 			}
 
 			-- Manage cache size with safe iteration
-			-- 
+			--
 			self:manage_cache()
 		end
 
@@ -690,13 +659,13 @@ function SignatureHelp:setup_autocmds()
 		end,
 	})
 	api.nvim_create_autocmd({ "CursorMovedI" }, {
-        group = group,
-        callback = function()
-            if self.visible then
-                self:update_active_parameter()
-            end
-        end,
-    })
+		group = group,
+		callback = function()
+			if self.visible then
+				self:update_active_parameter()
+			end
+		end,
+	})
 
 	api.nvim_create_autocmd({ "InsertLeave", "BufHidden", "BufLeave" }, {
 		group = group,
@@ -755,60 +724,45 @@ function SignatureHelp:display(result)
 
 	-- Safely convert to markdown and get labels
 	local ok, contents, labels = pcall(self.format_signature_list, self, result.signatures)
-    if not ok or not contents then
-        vim.notify("Error formatting signature: " .. (contents or "unknown error"), vim.log.levels.ERROR)
-        return
-    end
+	if not ok or not contents then
+		vim.notify("Error formatting signature: " .. (contents or "unknown error"), vim.log.levels.ERROR)
+		return
+	end
 
-    if #contents > 0 then
-        if self.config.behavior and self.config.behavior.dock_mode then
-            local win, buf = self:create_dock_window()
-            if win and buf then
-                -- Set content with error handling
-                pcall(api.nvim_buf_set_lines, buf, 0, -1, false, contents)
-                pcall(vim.lsp.util.stylize_markdown, buf, contents, {})
-                pcall(self.set_dock_parameter_highlights, self, result.activeParameter or 0, result.signatures)
-                self.visible = true
-                -- Add parameter indicators after window creation
-                if self.config.parameter_indicators.enabled then
-                    self:add_parameter_indicators()
-                end
-            end
-        else
-            local win, buf = self:create_window(contents)
-            if win and buf then
-                pcall(
-                    self.set_active_parameter_highlights,
-                    self,
-                    result.activeParameter or 0,
-                    result.signatures,
-                    labels
-                )
-                -- Add parameter indicators after window creation
-                if self.config.parameter_indicators.enabled then
-                    self:add_parameter_indicators()
-                end
-            end
-        end
-    end
-end
-
-function SignatureHelp:safe_concat(...)
-	local result = {}
-	for i = 1, select("#", ...) do
-		local value = select(i, ...)
-		if type(value) == "string" then
-			table.insert(result, value)
-		elseif type(value) == "table" then
-			for _, v in ipairs(value) do
-				if type(v) == "string" then
-					table.insert(result, v)
+	if #contents > 0 then
+		if self.config.behavior and self.config.behavior.dock_mode then
+			local win, buf = self:create_dock_window()
+			if win and buf then
+				-- Set content with error handling
+				pcall(api.nvim_buf_set_lines, buf, 0, -1, false, contents)
+				pcall(vim.lsp.util.stylize_markdown, buf, contents, {})
+				pcall(self.set_dock_parameter_highlights, self, result.activeParameter or 0, result.signatures)
+				self.visible = true
+				-- Add parameter indicators after window creation
+				if self.config.parameter_indicators.enabled then
+					self:add_parameter_indicators()
+				end
+			end
+		else
+			local win, buf = self:create_window(contents)
+			if win and buf then
+				pcall(
+					self.set_active_parameter_highlights,
+					self,
+					result.activeParameter or 0,
+					result.signatures,
+					labels
+				)
+				-- Add parameter indicators after window creation
+				if self.config.parameter_indicators.enabled then
+					self:add_parameter_indicators()
 				end
 			end
 		end
 	end
-	return table.concat(result)
 end
+
+
 
 function SignatureHelp:format_signature_list(signatures)
 	if not signatures or type(signatures) ~= "table" then
@@ -866,6 +820,7 @@ end
 
 function SignatureHelp:format_signature_line(signature, index, show_index)
     local parts = {}
+    local max_width = self.config.ui.max_width - 4  -- Account for padding
 
     -- Add method icon and name
     local method_name = signature.label:match("^([^(]+)")
@@ -884,7 +839,6 @@ function SignatureHelp:format_signature_line(signature, index, show_index)
         if type(param.label) == "string" then
             param_text = param.label
         elseif type(param.label) == "table" then
-            -- Handle array-style label [start, end]
             if param.label[1] and param.label[2] then
                 param_text = signature.label:sub(param.label[1] + 1, param.label[2])
             end
@@ -900,7 +854,7 @@ function SignatureHelp:format_signature_line(signature, index, show_index)
         end
     end
 
-    -- Safely combine parts
+    -- Safely combine parts with wrapping
     local method_part = table.concat(parts, " ")
     local params_part = table.concat(param_parts, ", ")
     local sig_line = method_part .. "(" .. params_part .. ")"
@@ -910,79 +864,105 @@ function SignatureHelp:format_signature_line(signature, index, show_index)
         sig_line = sig_line .. string.format(" (%d/%d)", index, #params)
     end
 
+    -- Wrap long lines
+    if #sig_line > max_width then
+        local wrapped_lines = {}
+        local current_line = ""
+        local words = vim.split(sig_line, " ")
+        
+        for _, word in ipairs(words) do
+            if #current_line + #word + 1 <= max_width then
+                current_line = current_line == "" and word or current_line .. " " .. word
+            else
+                table.insert(wrapped_lines, current_line)
+                current_line = word
+            end
+        end
+        if current_line ~= "" then
+            table.insert(wrapped_lines, current_line)
+        end
+        
+        sig_line = table.concat(wrapped_lines, "\n      ")  -- Add indent for wrapped lines
+    end
+
     return sig_line
 end
 function SignatureHelp:calculate_window_position()
-    local cursor_pos = vim.api.nvim_win_get_cursor(0)
-    local screen_pos = vim.fn.screenpos(0, cursor_pos[1], cursor_pos[2])
-    local editor_height = vim.o.lines
-    local editor_width = vim.o.columns
-    
-    -- Calculate preferred position
-    local preferred_row = screen_pos.row - 2 -- Above cursor
-    local preferred_col = screen_pos.col
-    
-    -- Adjust for screen boundaries
-    if preferred_row < 2 then
-        preferred_row = screen_pos.row + 1 -- Below cursor
-    end
-    
-    if preferred_col + self.config.ui.max_width > editor_width then
-        preferred_col = editor_width - self.config.ui.max_width - 2
-    end
-    
-    return {
-        row = preferred_row,
-        col = preferred_col
-    }
+	local cursor_pos = vim.api.nvim_win_get_cursor(0)
+	local screen_pos = vim.fn.screenpos(0, cursor_pos[1], cursor_pos[2])
+	local editor_height = vim.o.lines
+	local editor_width = vim.o.columns
+
+	-- Calculate preferred position
+	local preferred_row = screen_pos.row - 2 -- Above cursor
+	local preferred_col = screen_pos.col
+
+	-- Adjust for screen boundaries
+	if preferred_row < 2 then
+		preferred_row = screen_pos.row + 1 -- Below cursor
+	end
+
+	if preferred_col + self.config.ui.max_width > editor_width then
+		preferred_col = editor_width - self.config.ui.max_width - 2
+	end
+
+	return {
+		row = preferred_row,
+		col = preferred_col,
+	}
 end
 -- Dock Mode Implementation
 function SignatureHelp:create_dock_window()
-	local dock_config = self:calculate_dock_position()
+    local dock_config = self:calculate_dock_position()
 
-	-- Create or reuse buffer
-	if not self.dock_buf or not api.nvim_buf_is_valid(self.dock_buf) then
-		self.dock_buf = api.nvim_create_buf(false, true)
-		vim.bo[self.dock_buf].buftype = "nofile"
-		vim.bo[self.dock_buf].bufhidden = "hide"
-		vim.bo[self.dock_buf].swapfile = false
-		vim.bo[self.dock_buf].filetype = "SignatureHelp"
-	end
+    -- Create or reuse buffer
+    if not self.dock_buf or not api.nvim_buf_is_valid(self.dock_buf) then
+        self.dock_buf = api.nvim_create_buf(false, true)
+        vim.bo[self.dock_buf].buftype = "nofile"
+        vim.bo[self.dock_buf].bufhidden = "hide"
+        vim.bo[self.dock_buf].swapfile = false
+        vim.bo[self.dock_buf].filetype = "SignatureHelp"
+    end
 
-	-- Create or update window
-	if not self.dock_win or not api.nvim_win_is_valid(self.dock_win) then
-		self.dock_win = api.nvim_open_win(self.dock_buf, false, dock_config)
+    -- Remove noautocmd from config for existing windows
+    if self.dock_win and api.nvim_win_is_valid(self.dock_win) then
+        dock_config.noautocmd = nil
+        api.nvim_win_set_config(self.dock_win, dock_config)
+    else
+        -- Create new window with noautocmd
+        self.dock_win = api.nvim_open_win(self.dock_buf, false, dock_config)
 
-		-- Set window options
-		local win_opts = {
-			wrap = true,
-			foldenable = false,
-			winblend = math.floor((1 - self.config.ui.opacity) * 100),
-			winhighlight = "Normal:SignatureHelpDock,FloatBorder:SignatureHelpBorder",
-			signcolumn = "no",
-			cursorline = false,
-			number = false,
-			relativenumber = false,
-		}
+        -- Set window options
+        local win_opts = {
+            wrap = true,
+            foldenable = false,
+            winblend = math.floor((1 - self.config.ui.opacity) * 100),
+            winhighlight = "Normal:SignatureHelpDock,FloatBorder:SignatureHelpBorder",
+            signcolumn = "no",
+            cursorline = false,
+            number = false,
+            relativenumber = false,
+            linebreak = true,  -- Enable smart line breaks
+            breakindent = true, -- Preserve indentation on wrapped lines
+            showbreak = "↪ ",  -- Show break indicator
+        }
 
-		for opt, val in pairs(win_opts) do
-			vim.wo[self.dock_win][opt] = val
-		end
-	else
-		api.nvim_win_set_config(self.dock_win, dock_config)
-	end
+        for opt, val in pairs(win_opts) do
+            vim.wo[self.dock_win][opt] = val
+        end
+    end
 
-	return self.dock_win, self.dock_buf
+    return self.dock_win, self.dock_buf
 end
 function SignatureHelp:close_dock_window()
-    if self.dock_win and api.nvim_win_is_valid(self.dock_win) then
-        pcall(api.nvim_win_close, self.dock_win, true)
-    end
-    if self.dock_buf and api.nvim_buf_is_valid(self.dock_buf) then
-        pcall(api.nvim_buf_delete, self.dock_buf, { force = true })
-    end
-    self.dock_win = nil
-    self.dock_buf = nil
+	if self.dock_win and api.nvim_win_is_valid(self.dock_win) then
+		pcall(api.nvim_win_close, self.dock_win, true)
+	end
+	if self.dock_buf and api.nvim_buf_is_valid(self.dock_buf) then
+		pcall(api.nvim_buf_delete, self.dock_buf, { force = true })
+	end
+	self.dock_win = nil
+	self.dock_buf = nil
 end
 function SignatureHelp:calculate_dock_position()
 	local editor_width = vim.o.columns
@@ -1072,104 +1052,102 @@ function SignatureHelp:set_dock_parameter_highlights(active_parameter, signature
 	self:highlight_icons(self.dock_buf)
 end
 function SignatureHelp:highlight_icons(buf)
-    if not buf or not api.nvim_buf_is_valid(buf) then return end
-    
-    local lines = api.nvim_buf_get_lines(buf, 0, -1, false)
-    for i, line in ipairs(lines) do
-        -- Highlight method icons
-        local method_icon_start = line:find(vim.pesc(self.config.icons.method))
-        if method_icon_start then
-            api.nvim_buf_add_highlight(
-                buf,
-                self.highlight_ns,
-                'SignatureHelpMethodIcon',
-                i - 1,
-                method_icon_start - 1,
-                method_icon_start + #self.config.icons.method - 1
-            )
-        end
-        
-        -- Highlight parameter icons
-        local param_icon_start = line:find(vim.pesc(self.config.icons.parameter))
-        if param_icon_start then
-            api.nvim_buf_add_highlight(
-                buf,
-                self.highlight_ns,
-                'SignatureHelpParamIcon',
-                i - 1,
-                param_icon_start - 1,
-                param_icon_start + #self.config.icons.parameter - 1
-            )
-        end
-    end
+	if not buf or not api.nvim_buf_is_valid(buf) then
+		return
+	end
+
+	local lines = api.nvim_buf_get_lines(buf, 0, -1, false)
+	for i, line in ipairs(lines) do
+		-- Highlight method icons
+		local method_icon_start = line:find(vim.pesc(self.config.icons.method))
+		if method_icon_start then
+			api.nvim_buf_add_highlight(
+				buf,
+				self.highlight_ns,
+				"SignatureHelpMethodIcon",
+				i - 1,
+				method_icon_start - 1,
+				method_icon_start + #self.config.icons.method - 1
+			)
+		end
+
+		-- Highlight parameter icons
+		local param_icon_start = line:find(vim.pesc(self.config.icons.parameter))
+		if param_icon_start then
+			api.nvim_buf_add_highlight(
+				buf,
+				self.highlight_ns,
+				"SignatureHelpParamIcon",
+				i - 1,
+				param_icon_start - 1,
+				param_icon_start + #self.config.icons.parameter - 1
+			)
+		end
+	end
 end
 function SignatureHelp:highlight_active_parameter(buf, signature, active_param)
-    if not signature or not signature.parameters then return end
-    
-    -- Clear existing highlights
-    vim.api.nvim_buf_clear_namespace(buf, self.highlight_ns, 0, -1)
-    
-    local param = signature.parameters[active_param + 1]
-    if not param then return end
-    
-    -- Get parameter range
-    local start_pos, end_pos
-    if type(param.label) == "table" then
-        start_pos = param.label[1]
-        end_pos = param.label[2]
-    else
-        local content = vim.api.nvim_buf_get_lines(buf, 0, -1, false)[1]
-        start_pos = content:find(vim.pesc(param.label))
-        if start_pos then
-            end_pos = start_pos + #param.label - 1
-        end
-    end
-    
-    -- Apply highlight
-    if start_pos and end_pos then
-        vim.api.nvim_buf_add_highlight(
-            buf,
-            self.highlight_ns,
-            "LspSignatureActiveParameter",
-            0,
-            start_pos - 1,
-            end_pos
-        )
-    end
+	if not signature or not signature.parameters then
+		return
+	end
+
+	-- Clear existing highlights
+	vim.api.nvim_buf_clear_namespace(buf, self.highlight_ns, 0, -1)
+
+	local param = signature.parameters[active_param + 1]
+	if not param then
+		return
+	end
+
+	-- Get parameter range
+	local start_pos, end_pos
+	if type(param.label) == "table" then
+		start_pos = param.label[1]
+		end_pos = param.label[2]
+	else
+		local content = vim.api.nvim_buf_get_lines(buf, 0, -1, false)[1]
+		start_pos = content:find(vim.pesc(param.label))
+		if start_pos then
+			end_pos = start_pos + #param.label - 1
+		end
+	end
+
+	-- Apply highlight
+	if start_pos and end_pos then
+		vim.api.nvim_buf_add_highlight(buf, self.highlight_ns, "LspSignatureActiveParameter", 0, start_pos - 1, end_pos)
+	end
 end
 
-
 function SignatureHelp:add_parameter_indicators()
-    if not self.current_signatures then return end
-    
-    local sig = self.current_signatures[self.current_signature_idx]
-    if not sig or not sig.parameters then return end
-    
-    -- Determine which buffer to use
-    local buf = self.config.behavior.dock_mode and self.dock_buf or self.buf
-    if not buf or not api.nvim_buf_is_valid(buf) then return end
-    
-    local indicators = {}
-    for i = 1, #sig.parameters do
-        if i == self.current_active_parameter + 1 then
-            table.insert(indicators, self.config.parameter_indicators.active_symbol or "●")
-        else
-            table.insert(indicators, self.config.parameter_indicators.inactive_symbol or "○")
-        end
-    end
-    
-    -- Add indicators to the window
-    if #indicators > 0 then
-        local indicator_line = table.concat(indicators, " ")
-        -- Use pcall to handle potential errors
-        pcall(vim.api.nvim_buf_set_lines,
-            buf,
-            -1,
-            -1,
-            false,
-            {string.rep("─", #indicator_line), indicator_line}
-        )
-    end
+	if not self.current_signatures then
+		return
+	end
+
+	local sig = self.current_signatures[self.current_signature_idx]
+	if not sig or not sig.parameters then
+		return
+	end
+
+	-- Determine which buffer to use
+	local buf = self.config.behavior.dock_mode and self.dock_buf or self.buf
+	if not buf or not api.nvim_buf_is_valid(buf) then
+		return
+	end
+
+	local indicators = {}
+	for i = 1, #sig.parameters do
+		if i == self.current_active_parameter + 1 then
+			table.insert(indicators, self.config.parameter_indicators.active_symbol or "●")
+		else
+			table.insert(indicators, self.config.parameter_indicators.inactive_symbol or "○")
+		end
+	end
+
+	-- Add indicators to the window
+	if #indicators > 0 then
+		local indicator_line = table.concat(indicators, " ")
+		-- Use pcall to handle potential errors
+		pcall(vim.api.nvim_buf_set_lines, buf, -1, -1, false, { string.rep("─", #indicator_line), indicator_line })
+	end
 end
 function SignatureHelp:toggle_normal_mode()
 	self.normal_mode_active = not self.normal_mode_active
@@ -1257,19 +1235,18 @@ function SignatureHelp:prev_signature()
 	})
 end
 function SignatureHelp:smart_refresh()
-    -- Check if we need to refresh based on context
-    local context = self:detect_signature_context()
-    local current_param = self:detect_active_parameter()
-    
-    if self.last_context then
-        if context.method_name ~= self.last_context.method_name or
-           current_param ~= self.last_active_parameter then
-            self:trigger()
-        end
-    end
-    
-    self.last_context = context
-    self.last_active_parameter = current_param
+	-- Check if we need to refresh based on context
+	local context = self:detect_signature_context()
+	local current_param = self:detect_active_parameter()
+
+	if self.last_context then
+		if context.method_name ~= self.last_context.method_name or current_param ~= self.last_active_parameter then
+			self:trigger()
+		end
+	end
+
+	self.last_context = context
+	self.last_active_parameter = current_param
 end
 function SignatureHelp:setup_keymaps()
 	-- Setup toggle keys using the actual config
@@ -1362,31 +1339,31 @@ function SignatureHelp:apply_treesitter_highlighting()
 end
 
 function SignatureHelp:hide()
-    if self.visible then
-        -- Store current window and buffer
-        local current_win = api.nvim_get_current_win()
-        local current_buf = api.nvim_get_current_buf()
+	if self.visible then
+		-- Store current window and buffer
+		local current_win = api.nvim_get_current_win()
+		local current_buf = api.nvim_get_current_buf()
 
-        -- Close appropriate window based on mode
-        if self.config.behavior.dock_mode then
-            self:close_dock_window()
-        else
-            if self.win and api.nvim_win_is_valid(self.win) then
-                pcall(api.nvim_win_close, self.win, true)
-            end
-            if self.buf and api.nvim_buf_is_valid(self.buf) then
-                pcall(api.nvim_buf_delete, self.buf, { force = true })
-            end
-            self.win = nil
-            self.buf = nil
-        end
+		-- Close appropriate window based on mode
+		if self.config.behavior.dock_mode then
+			self:close_dock_window()
+		else
+			if self.win and api.nvim_win_is_valid(self.win) then
+				pcall(api.nvim_win_close, self.win, true)
+			end
+			if self.buf and api.nvim_buf_is_valid(self.buf) then
+				pcall(api.nvim_buf_delete, self.buf, { force = true })
+			end
+			self.win = nil
+			self.buf = nil
+		end
 
-        self.visible = false
+		self.visible = false
 
-        -- Restore focus
-        pcall(api.nvim_set_current_win, current_win)
-        pcall(api.nvim_set_current_buf, current_buf)
-    end
+		-- Restore focus
+		pcall(api.nvim_set_current_win, current_win)
+		pcall(api.nvim_set_current_buf, current_buf)
+	end
 end
 
 -- Add API methods for external use
@@ -1415,39 +1392,39 @@ M.prev_signature = function()
 end
 
 function SignatureHelp:setup_highlights()
-    local colors = self.config.colors
-    local active_colors = self.config.active_parameter_colors
+	local colors = self.config.colors
+	local active_colors = self.config.active_parameter_colors
 
-    -- Ensure we have default values if not provided
-    active_colors = active_colors or {
-        fg = "#1a1a1a",
-        bg = "#86e1fc",
-    }
-    
-    local highlights = {
-        SignatureHelpDock = { link = "NormalFloat" },
-        SignatureHelpBorder = { link = "FloatBorder" },
-        SignatureHelpMethod = { fg = colors.method },
-        SignatureHelpParameter = { fg = colors.parameter },
-        SignatureHelpDocumentation = { fg = colors.documentation },
-        SignatureHelpDefaultValue = { fg = colors.default_value, italic = true },
-        SignatureHelpMethodIcon = { fg = colors.method, bold = true },
-        SignatureHelpParamIcon = { fg = colors.parameter, bold = true },
-        LspSignatureActiveParameter = {
-            fg = active_colors.fg,
-            bg = active_colors.bg,
-            bold = true,
-        },
-        SignatureHelpIndicator = { fg = colors.method },
-        SignatureHelpIndicatorActive = { 
-            fg = colors.parameter,
-            bold = true 
-        },
-    }
+	-- Ensure we have default values if not provided
+	active_colors = active_colors or {
+		fg = "#1a1a1a",
+		bg = "#86e1fc",
+	}
 
-    for group, hl_opts in pairs(highlights) do
-        vim.api.nvim_set_hl(0, group, hl_opts)
-    end
+	local highlights = {
+		SignatureHelpDock = { link = "NormalFloat" },
+		SignatureHelpBorder = { link = "FloatBorder" },
+		SignatureHelpMethod = { fg = colors.method },
+		SignatureHelpParameter = { fg = colors.parameter },
+		SignatureHelpDocumentation = { fg = colors.documentation },
+		SignatureHelpDefaultValue = { fg = colors.default_value, italic = true },
+		SignatureHelpMethodIcon = { fg = colors.method, bold = true },
+		SignatureHelpParamIcon = { fg = colors.parameter, bold = true },
+		LspSignatureActiveParameter = {
+			fg = active_colors.fg,
+			bg = active_colors.bg,
+			bold = true,
+		},
+		SignatureHelpIndicator = { fg = colors.method },
+		SignatureHelpIndicatorActive = {
+			fg = colors.parameter,
+			bold = true,
+		},
+	}
+
+	for group, hl_opts in pairs(highlights) do
+		vim.api.nvim_set_hl(0, group, hl_opts)
+	end
 end
 
 -- Add parameter navigation
@@ -1517,15 +1494,6 @@ function SignatureHelp:cleanup()
 	end
 end
 
--- Add better error handling for window creation
-function SignatureHelp:safe_create_window(contents)
-	local ok, result = pcall(self.create_window, self, contents)
-	if not ok then
-		vim.notify("Failed to create signature window: " .. tostring(result), vim.log.levels.ERROR)
-		return nil, nil
-	end
-	return result
-end
 
 -- Add health check function
 function M.health()
@@ -1566,17 +1534,17 @@ function SignatureHelp:manage_cache()
 	end
 end
 
--- Add window position adjustment for multi-monitor setups
-function SignatureHelp:adjust_window_position(opts)
-	local screen_pos = vim.fn.screenpos(0, opts.row or 1, opts.col or 0)
-	if screen_pos.row < 1 then
-		opts.row = opts.row + math.abs(screen_pos.row) + 1
-	end
-	if screen_pos.col < 1 then
-		opts.col = opts.col + math.abs(screen_pos.col) + 1
-	end
-	return opts
-end
+-- -- Add window position adjustment for multi-monitor setups
+-- function SignatureHelp:adjust_window_position(opts)
+-- 	local screen_pos = vim.fn.screenpos(0, opts.row or 1, opts.col or 0)
+-- 	if screen_pos.row < 1 then
+-- 		opts.row = opts.row + math.abs(screen_pos.row) + 1
+-- 	end
+-- 	if screen_pos.col < 1 then
+-- 		opts.col = opts.col + math.abs(screen_pos.col) + 1
+-- 	end
+-- 	return opts
+-- end
 
 -- Setup function
 function M.setup(opts)
