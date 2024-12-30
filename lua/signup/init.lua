@@ -949,58 +949,58 @@ end
 
 -- Setup and Initialization
 function SignatureHelp:setup_keymaps()
-	-- Setup toggle keys using the actual config
-	local toggle_key = self.config.keymaps.toggle
-	local dock_toggle_key = self.config.keymaps.toggle_dock
+    -- Setup toggle keys using the actual config
+    local toggle_key = self.config.keymaps.toggle
+    local dock_toggle_key = self.config.keymaps.toggle_dock
 
-	if toggle_key then
-		vim.keymap.set("n", toggle_key, function()
-			self:toggle_normal_mode()
-		end, { noremap = true, silent = true, desc = "Toggle signature help in normal mode" })
-		vim.keymap.set("i", toggle_key, function()
+    if toggle_key then
+        vim.keymap.set("n", toggle_key, function()
+            self:toggle_normal_mode()
+        end, { noremap = true, silent = true, desc = "Toggle signature help in normal mode" })
+        vim.keymap.set("i", toggle_key, function()
             if self.visible then
                 self:hide()
             else
                 self:trigger()
             end
         end, { noremap = true, silent = true, desc = "Toggle signature help in insert mode" })
-	end
+    end
 
-	if dock_toggle_key then
-		vim.keymap.set("n", dock_toggle_key, function()
-			self:toggle_dock_mode()
-		end, { noremap = true, silent = true, desc = "Toggle between dock and float mode" })
-	end
+    if dock_toggle_key then
+        vim.keymap.set("n", dock_toggle_key, function()
+            self:toggle_dock_mode()
+        end, { noremap = true, silent = true, desc = "Toggle between dock and float mode" })
+    end
 
-	-- Setup navigation keys
-	local next_sig = self.config.keymaps.next_signature
-	local prev_sig = self.config.keymaps.prev_signature
-	local next_param = self.config.keymaps.next_parameter
-	local prev_param = self.config.keymaps.prev_parameter
+    -- Setup navigation keys
+    local next_sig = self.config.keymaps.next_signature
+    local prev_sig = self.config.keymaps.prev_signature
+    local next_param = self.config.keymaps.next_parameter
+    local prev_param = self.config.keymaps.prev_parameter
 
-	if next_sig then
-		vim.keymap.set("i", next_sig, function()
-			self:next_signature()
-		end, { noremap = true, silent = true, desc = "Next signature" })
-	end
+    if next_sig then
+        vim.keymap.set("i", next_sig, function()
+            self:next_signature()
+        end, { noremap = true, silent = true, desc = "Next signature" })
+    end
 
-	if prev_sig then
-		vim.keymap.set("i", prev_sig, function()
-			self:prev_signature()
-		end, { noremap = true, silent = true, desc = "Previous signature" })
-	end
+    if prev_sig then
+        vim.keymap.set("i", prev_sig, function()
+            self:prev_signature()
+        end, { noremap = true, silent = true, desc = "Previous signature" })
+    end
 
-	if next_param then
-		vim.keymap.set("i", next_param, function()
-			self:next_parameter()
-		end, { noremap = true, silent = true, desc = "Next parameter" })
-	end
+    if next_param then
+        vim.keymap.set("i", next_param, function()
+            self:next_parameter()
+        end, { noremap = true, silent = true, desc = "Next parameter" })
+    end
 
-	if prev_param then
-		vim.keymap.set("i", prev_param, function()
-			self:prev_parameter()
-		end, { noremap = true, silent = true, desc = "Previous parameter" })
-	end
+    if prev_param then
+        vim.keymap.set("i", prev_param, function()
+            self:prev_parameter()
+        end, { noremap = true, silent = true, desc = "Previous parameter" })
+    end
 end
 
 function SignatureHelp:setup_autocmds()
@@ -1094,143 +1094,142 @@ end
 
 -- LSP Integration and Trigger Logic
 function SignatureHelp:trigger()
-	-- Early return if not enabled
-	local mode = vim.api.nvim_get_mode().mode
+    -- Early return if not enabled
+    local mode = vim.api.nvim_get_mode().mode
     if not self.enabled and not (mode:sub(1, 1) == "i" or self.normal_mode_active) then
         logger.debug("SignatureHelp not enabled or invalid mode")
         return
     end
 
-	-- Define trigger kinds
-	local TriggerKind = {
-		Invoked = 1,
-		TriggerCharacter = 2,
-		ContentChange = 3,
-	}
+    -- Define trigger kinds
+    local TriggerKind = {
+        Invoked = 1,
+        TriggerCharacter = 2,
+        ContentChange = 3,
+    }
 
-	-- Check for cmp visibility with better error handling
-	local cmp_ok, cmp = pcall(require, "cmp")
-	local cmp_visible = cmp_ok and cmp.visible() or false
-	self.cmp_visible_cache = cmp_visible
+    -- Check for cmp visibility with better error handling
+    local cmp_ok, cmp = pcall(require, "cmp")
+    local cmp_visible = cmp_ok and cmp.visible() or false
+    self.cmp_visible_cache = cmp_visible
 
-	-- Enhanced CMP overlap handling
-	if cmp_visible and self.config.behavior.avoid_cmp_overlap then
-		self:hide()
-		return
-	end
+    -- Enhanced CMP overlap handling
+    if cmp_visible and self.config.behavior.avoid_cmp_overlap then
+        self:hide()
+        return
+    end
 
-	-- Get current buffer and position
-	local bufnr = vim.api.nvim_get_current_buf()
-	local cursor = vim.api.nvim_win_get_cursor(0)
-	local row, col = cursor[1], cursor[2]
+    -- Get current buffer and position
+    local bufnr = vim.api.nvim_get_current_buf()
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row, col = cursor[1], cursor[2]
 
-	-- Get buffer URI
-	local uri = vim.uri_from_bufnr(bufnr)
-	if not uri then
-		return
-	end
+    -- Get buffer URI
+    local uri = vim.uri_from_bufnr(bufnr)
+    if not uri then
+        return
+    end
 
-	-- Get active clients with capability checking
-	local clients = vim.lsp.get_clients({
-		bufnr = bufnr,
-		method = "textDocument/signatureHelp",
-	})
+    -- Get active clients with capability checking
+    local clients = vim.lsp.get_clients({
+        bufnr = bufnr,
+        method = "textDocument/signatureHelp",
+    })
 
-	if not clients or #clients == 0 then
-		if not self.config.silent then
-			logger.debug("No LSP clients available for signature help")
-		end
-		return
-	end
+    if not clients or #clients == 0 then
+        if not self.config.silent then
+            logger.debug("No LSP clients available for signature help")
+        end
+        return
+    end
 
-	-- Find best client with signature help support
-	local signature_client
-	for _, client in ipairs(clients) do
-		if client.server_capabilities.signatureHelpProvider then
-			signature_client = client
-			break
-		end
-	end
+    -- Find best client with signature help support
+    local signature_client
+    for _, client in ipairs(clients) do
+        if client.server_capabilities.signatureHelpProvider then
+            signature_client = client
+            break
+        end
+    end
 
-	if not signature_client then
-		if not self.config.silent then
-			logger.debug("No LSP client with signature help capability")
-		end
-		return
-	end
+    if not signature_client then
+        if not self.config.silent then
+            logger.debug("No LSP client with signature help capability")
+        end
+        return
+    end
 
-	-- Get current line context
-	local line = vim.api.nvim_get_current_line()
-	local line_to_cursor = line:sub(1, col)
-	local trigger_char = line_to_cursor:sub(-1)
+    -- Get current line context
+    local line = vim.api.nvim_get_current_line()
+    local line_to_cursor = line:sub(1, col)
+    local trigger_char = line_to_cursor:sub(-1)
 
-	-- Check trigger character validity
-	local valid_trigger = false
-	local trigger_chars = signature_client.server_capabilities.signatureHelpProvider.triggerCharacters or {}
-	for _, char in ipairs(trigger_chars) do
-		if trigger_char == char then
-			valid_trigger = true
-			break
-		end
-	end
+    -- Check trigger character validity
+    local valid_trigger = false
+    local trigger_chars = signature_client.server_capabilities.signatureHelpProvider.triggerCharacters or {}
+    for _, char in ipairs(trigger_chars) do
+        if trigger_char == char then
+            valid_trigger = true
+            break
+        end
+    end
 
-	-- Detect parameter position
-	local detected_param = self:detect_active_parameter()
-	local retrigger = self.visible and self.last_active_parameter ~= detected_param
+    -- Detect parameter position
+    local detected_param = self:detect_active_parameter()
+    local retrigger = self.visible and self.last_active_parameter ~= detected_param
 
-	-- Create LSP position parameters
-	local params = {
-		textDocument = { uri = uri },
-		position = {
-			line = row - 1,
-			character = col,
-		},
-		context = {
-			triggerKind = valid_trigger and TriggerKind.TriggerCharacter or TriggerKind.ContentChange,
-			triggerCharacter = valid_trigger and trigger_char or nil,
-			isRetrigger = retrigger,
-			activeParameter = detected_param,
-		},
-	}
+    -- Create LSP position parameters
+    local params = {
+        textDocument = { uri = uri },
+        position = {
+            line = row - 1,
+            character = col,
+        },
+        context = {
+            triggerKind = valid_trigger and TriggerKind.TriggerCharacter or TriggerKind.ContentChange,
+            triggerCharacter = valid_trigger and trigger_char or nil,
+            isRetrigger = retrigger,
+            activeParameter = detected_param,
+        },
+    }
 
-	-- Cache current state
-	local current_state = {
-		line = line,
-		row = row,
-		col = col,
-		parameter = detected_param,
-		bufnr = bufnr,
-	}
+    -- Cache current state
+    local current_state = {
+        line = line,
+        row = row,
+        col = col,
+        parameter = detected_param,
+        bufnr = bufnr,
+    }
 
-	-- Make LSP request with debouncing
-	utils.debounce(function()
-		vim.lsp.buf_request(bufnr, "textDocument/signatureHelp", params, function(err, result, ctx)
-			if not ctx.bufnr or not vim.api.nvim_buf_is_valid(ctx.bufnr) then
-				return
-			end
+    -- Make LSP request with debouncing
+    utils.debounce(function()
+        vim.lsp.buf_request(bufnr, "textDocument/signatureHelp", params, function(err, result, ctx)
+            if not ctx.bufnr or not vim.api.nvim_buf_is_valid(ctx.bufnr) then
+                return
+            end
 
-			-- Validate context hasn't changed significantly
-			if not self:validate_context(current_state, ctx) then
-				return
-			end
+            -- Validate context hasn't changed significantly
+            if not self:validate_context(current_state, ctx) then
+                return
+            end
 
-			if err then
-				logger.debug("Signature help error: " .. tostring(err))
-				return
-			end
+            if err then
+                logger.debug("Signature help error: " .. tostring(err))
+                return
+            end
 
-			if not result or not result.signatures or vim.tbl_isempty(result.signatures) then
-				if self.visible then
-					self:hide()
-				end
-				return
-			end
+            if not result or not result.signatures or vim.tbl_isempty(result.signatures) then
+                if self.visible then
+                    self:hide()
+                end
+                return
+            end
 
-			self:process_signature_result(result)
-		end)
-	end, self.config.behavior.debounce or 50)
+            self:process_signature_result(result)
+        end)
+    end, self.config.behavior.debounce or 50)
 end
-
 function SignatureHelp:setup_highlights()
 	highlights.setup_highlights(self.config.colors)
 end
