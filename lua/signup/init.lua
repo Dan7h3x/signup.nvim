@@ -1734,54 +1734,54 @@ function SignatureHelp:get_language_handler()
 end
 
 -- Completion Integration
-function SignatureHelp:setup_completion_integration()
-	local has_cmp, cmp = pcall(require, "cmp")
-	if not has_cmp then
-		return
-	end
+-- function SignatureHelp:setup_completion_integration()
+-- 	local has_cmp, cmp = pcall(require, "cmp")
+-- 	if not has_cmp then
+-- 		return
+-- 	end
 
-	-- Register signature help source
-	cmp.register_source("signature_help", {
-		new = function()
-			return {
-				get_trigger_characters = function()
-					return { "(", "," }
-				end,
+-- 	-- Register signature help source
+-- 	cmp.register_source("signature_help", {
+-- 		new = function()
+-- 			return {
+-- 				get_trigger_characters = function()
+-- 					return { "(", "," }
+-- 				end,
 
-				complete = function(self, params, callback)
-					if not M._instance or not M._instance.current_signatures then
-						callback({ items = {} })
-						return
-					end
+-- 				complete = function(self, params, callback)
+-- 					if not M._instance or not M._instance.current_signatures then
+-- 						callback({ items = {} })
+-- 						return
+-- 					end
 
-					local items = {}
-					local signatures = M._instance.current_signatures
+-- 					local items = {}
+-- 					local signatures = M._instance.current_signatures
 
-					for _, sig in ipairs(signatures) do
-						if sig.parameters then
-							for _, param in ipairs(sig.parameters) do
-								table.insert(items, {
-									label = param.label,
-									documentation = param.documentation,
-									kind = cmp.lsp.CompletionItemKind.Parameter,
-								})
-							end
-						end
-					end
+-- 					for _, sig in ipairs(signatures) do
+-- 						if sig.parameters then
+-- 							for _, param in ipairs(sig.parameters) do
+-- 								table.insert(items, {
+-- 									label = param.label,
+-- 									documentation = param.documentation,
+-- 									kind = cmp.lsp.CompletionItemKind.Parameter,
+-- 								})
+-- 							end
+-- 						end
+-- 					end
 
-					callback({ items = items })
-				end,
-			}
-		end,
-	})
+-- 					callback({ items = items })
+-- 				end,
+-- 			}
+-- 		end,
+-- 	})
 
-	-- Add completion source to default config
-	cmp.setup({
-		sources = cmp.config.sources({
-			{ name = "signature_help" },
-		}),
-	})
-end
+-- 	-- Add completion source to default config
+-- 	cmp.setup({
+-- 		sources = cmp.config.sources({
+-- 			{ name = "signature_help" },
+-- 		}),
+-- 	})
+-- end
 -- Plugin Setup and Configuration
 function M.setup(opts)
     -- Prevent multiple initializations
@@ -1837,7 +1837,7 @@ function M.setup(opts)
             instance:setup_dock_autocmds()
             instance:setup_virtual_text()
             instance:setup_language_specific_handlers()
-            instance:setup_completion_integration()
+            -- instance:setup_completion_integration()
         end)
 
         if not setup_ok then
