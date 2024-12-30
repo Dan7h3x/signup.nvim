@@ -762,38 +762,42 @@ function SignatureHelp:display(result)
 
 	-- Safely convert to markdown and get labels
 	local ok, contents, labels = pcall(self.format_signature_list, self, result.signatures)
-	if not ok or not contents then
-		vim.notify("Error formatting signature: " .. (contents or "unknown error"), vim.log.levels.ERROR)
-		return
-	end
+    if not ok or not contents then
+        vim.notify("Error formatting signature: " .. (contents or "unknown error"), vim.log.levels.ERROR)
+        return
+    end
 
-	if self.config.parameter_indicators.enabled then
-		self:add_parameter_indicators()
-	end
-
-	if #contents > 0 then
-		if self.config.behavior and self.config.behavior.dock_mode then
-			local win, buf = self:create_dock_window()
-			if win and buf then
-				-- Set content with error handling
-				pcall(api.nvim_buf_set_lines, buf, 0, -1, false, contents)
-				pcall(vim.lsp.util.stylize_markdown, buf, contents, {})
-				pcall(self.set_dock_parameter_highlights, self, result.activeParameter or 0, result.signatures)
-				self.visible = true
-			end
-		else
-			local win, buf = self:create_window(contents)
-			if win and buf then
-				pcall(
-					self.set_active_parameter_highlights,
-					self,
-					result.activeParameter or 0,
-					result.signatures,
-					labels
-				)
-			end
-		end
-	end
+    if #contents > 0 then
+        if self.config.behavior and self.config.behavior.dock_mode then
+            local win, buf = self:create_dock_window()
+            if win and buf then
+                -- Set content with error handling
+                pcall(api.nvim_buf_set_lines, buf, 0, -1, false, contents)
+                pcall(vim.lsp.util.stylize_markdown, buf, contents, {})
+                pcall(self.set_dock_parameter_highlights, self, result.activeParameter or 0, result.signatures)
+                self.visible = true
+                -- Add parameter indicators after window creation
+                if self.config.parameter_indicators.enabled then
+                    self:add_parameter_indicators()
+                end
+            end
+        else
+            local win, buf = self:create_window(contents)
+            if win and buf then
+                pcall(
+                    self.set_active_parameter_highlights,
+                    self,
+                    result.activeParameter or 0,
+                    result.signatures,
+                    labels
+                )
+                -- Add parameter indicators after window creation
+                if self.config.parameter_indicators.enabled then
+                    self:add_parameter_indicators()
+                end
+            end
+        end
+    end
 end
 
 function SignatureHelp:safe_concat(...)
@@ -1148,20 +1152,25 @@ function SignatureHelp:add_parameter_indicators()
     local sig = self.current_signatures[self.current_signature_idx]
     if not sig or not sig.parameters then return end
     
+    -- Determine which buffer to use
+    local buf = self.config.behavior.dock_mode and self.dock_buf or self.buf
+    if not buf or not api.nvim_buf_is_valid(buf) then return end
+    
     local indicators = {}
     for i = 1, #sig.parameters do
         if i == self.current_active_parameter + 1 then
-            table.insert(indicators, "●")
+            table.insert(indicators, self.config.parameter_indicators.active_symbol or "●")
         else
-            table.insert(indicators, "○")
+            table.insert(indicators, self.config.parameter_indicators.inactive_symbol or "○")
         end
     end
     
     -- Add indicators to the window
     if #indicators > 0 then
         local indicator_line = table.concat(indicators, " ")
-        vim.api.nvim_buf_set_lines(
-            self.buf,
+        -- Use pcall to handle potential errors
+        pcall(vim.api.nvim_buf_set_lines,
+            buf,
             -1,
             -1,
             false,
