@@ -533,8 +533,14 @@ function SignatureHelp:setup_autocmds()
 	api.nvim_create_autocmd({ "CursorMovedI", "TextChangedI" }, {
 		group = group,
 		callback = function()
-			local visible = require("cmp").visible() or require("blink-cmp").is_visible()
-			if visible then
+			if pcall(require, "cmp") then
+				Visible = require("cmp").visible
+			elseif pcall(require, "blink-cmp") then
+				Visible = require("blink-cmp").is_visible()
+			else
+				vim.notify("The completion plugin failed to detect", vim.log.warn)
+			end
+			if Visible then
 				self:hide()
 			elseif vim.fn.pumvisible() == 0 then
 				debounced_trigger()
