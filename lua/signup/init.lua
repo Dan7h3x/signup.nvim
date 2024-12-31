@@ -40,6 +40,7 @@ function SignatureHelp.new()
 			fg = "#1a1a1a",
 		},
 		border = "solid",
+		dock_border = "rounded",
 		winblend = 10,
 		auto_close = true,
 		trigger_chars = { "(", "," },
@@ -529,18 +530,19 @@ function SignatureHelp:setup_autocmds()
 			self:trigger()
 		end)
 	end
-
+	local function visibility()
+		local visible = true
+		if pcall(require, "cmp") then
+			visible = require("cmp").visible()
+		elseif pcall(require, "blink-cmp") then
+			visible = require("blink-cmp").is_visible()
+		end
+		return visible
+	end
 	api.nvim_create_autocmd({ "CursorMovedI", "TextChangedI" }, {
 		group = group,
 		callback = function()
-			if pcall(require, "cmp") then
-				Visible = require("cmp").visible
-			elseif pcall(require, "blink-cmp") then
-				Visible = require("blink-cmp").is_visible()
-			else
-				vim.notify("The completion plugin failed to detect", vim.log.warn)
-			end
-			if Visible then
+			if visibility() then
 				self:hide()
 			elseif vim.fn.pumvisible() == 0 then
 				debounced_trigger()
@@ -603,10 +605,16 @@ function SignatureHelp:create_dock_window()
 		-- Create dock buffer if needed
 		if not self.dock_buf or not api.nvim_buf_is_valid(self.dock_buf) then
 			self.dock_buf = api.nvim_create_buf(false, true)
-			api.nvim_buf_set_option(self.dock_buf, "buftype", "nofile")
-			api.nvim_buf_set_option(self.dock_buf, "bufhidden", "hide")
-			api.nvim_buf_set_option(self.dock_buf, "modifiable", false)
-			api.nvim_buf_set_option(self.dock_buf, "filetype", "markdown")
+			local buf_opts = {
+				buftype = "nofile",
+				bufhidden = "hide",
+				swapfile = false,
+				modifiable = true,
+				filetype = "SignatureHelp",
+			}
+			for opt, val in pairs(buf_opts) do
+				vim.bo[self.dock_buf][opt] = val
+			end
 
 			-- Set buffer name with ID for easier tracking
 			api.nvim_buf_set_name(self.dock_buf, self.dock_win_id)
@@ -617,20 +625,19 @@ function SignatureHelp:create_dock_window()
 		local win_width = api.nvim_win_get_width(current_win)
 		local dock_height = math.min(self.config.dock_mode.height, math.floor(win_height * 0.3))
 		local padding = self.config.dock_mode.padding
-		local dock_width = win_width - (padding * 2)
+		local dock_width = math.floor(win_width / 2 - (padding * 2))
 
 		local row = self.config.dock_mode.position == "bottom" and win_height - dock_height - padding or padding
-
+		local col = vim.o.columns - dock_width + padding
 		-- Create dock window with enhanced config
 		self.dock_win = api.nvim_open_win(self.dock_buf, false, {
-			relative = "win",
-			win = current_win,
+			relative = "editor",
 			width = dock_width,
 			height = dock_height,
 			row = row,
-			col = padding,
+			col = col,
 			style = "minimal",
-			border = self.config.border,
+			border = self.config.dock_border,
 			zindex = 50,
 			focusable = false, -- Make window non-focusable to prevent focus issues
 		})
@@ -663,10 +670,7 @@ function SignatureHelp:create_dock_window()
 				self:hide()
 			end,
 			["<Esc>"] = function()
-				self:hide()
-			end,
-			["<C-c>"] = function()
-				self:hide()
+				self:close_dock_window()
 			end,
 			["<C-n>"] = function()
 				self:next_signature()
