@@ -338,7 +338,67 @@ function SignatureHelp:highlight_icons()
 		end
 	end
 end
+function SignatureHelp:set_active_parameter_highlights_dock(active_parameter, signatures, labels, buf)
+	if not buf or not api.nvim_buf_is_valid(buf) then
+		return
+	end
 
+	-- Clear existing highlights
+	api.nvim_buf_clear_namespace(buf, -1, 0, -1)
+
+	-- Iterate over signatures to highlight the active parameter
+	for index, signature in ipairs(signatures) do
+		local parameter = signature.activeParameter or active_parameter
+		if parameter and parameter >= 0 and parameter < #signature.parameters then
+			local label = signature.parameters[parameter + 1].label
+			if type(label) == "string" then
+				-- Parse the signature string to find the exact range of the active parameter
+				local signature_str = signature.label
+				local start_pos, end_pos = self:find_parameter_range(signature_str, label)
+				if start_pos and end_pos then
+					api.nvim_buf_add_highlight(
+						buf,
+						-1,
+						"LspSignatureActiveParameter",
+						labels[index],
+						start_pos,
+						end_pos
+					)
+				end
+			elseif type(label) == "table" then
+				local start_pos, end_pos = unpack(label)
+				api.nvim_buf_add_highlight(
+					buf,
+					-1,
+					"LspSignatureActiveParameter",
+					labels[index],
+					start_pos + 5,
+					end_pos + 5
+				)
+			end
+		end
+	end
+
+	-- Add icon highlights
+	local icon_highlights = {
+		{ self.config.icons.method, "SignatureHelpMethod" },
+		{ self.config.icons.parameter, "SignatureHelpParameter" },
+		{ self.config.icons.documentation, "SignatureHelpDocumentation" },
+	}
+
+	for _, icon_hl in ipairs(icon_highlights) do
+		local icon, hl_group = unpack(icon_hl)
+		local line_num = 0
+		while line_num < api.nvim_buf_line_count(buf) do
+			local line = api.nvim_buf_get_lines(buf, line_num, line_num + 1, false)[1]
+			local start_col = line:find(vim.pesc(icon))
+			if start_col then
+				api.nvim_buf_add_highlight(buf, -1, hl_group, line_num, start_col - 1, start_col + #icon - 1)
+			end
+			line_num = line_num + 1
+		end
+	end
+end
 function SignatureHelp:display(result)
 	if not result or not result.signatures or #result.signatures == 0 then
 		self:hide()
@@ -369,7 +429,7 @@ function SignatureHelp:display(result)
 				api.nvim_buf_set_option(buf, "modifiable", true)
 				api.nvim_buf_set_lines(buf, 0, -1, false, markdown)
 				api.nvim_buf_set_option(buf, "modifiable", false)
-				self:set_active_parameter_highlights(result.activeParameter, result.signatures, labels)
+				self:set_active_parameter_highlights_dock(result.activeParameter, result.signatures, labels, buf)
 				self:apply_treesitter_highlighting()
 			end
 		else
@@ -557,7 +617,7 @@ function SignatureHelp:create_dock_window()
 
 		-- Create dock window with enhanced config
 		self.dock_win = api.nvim_open_win(self.dock_buf, false, {
-			relative = "editor",
+			relative = "win",
 			win = current_win,
 			width = dock_width,
 			height = dock_height,
