@@ -233,49 +233,28 @@ function SignatureHelp:close_dock_window()
 	self.dock_win = nil
 	self.dock_buf = nil
 end
-
 function SignatureHelp:apply_treesitter_highlighting()
-	local buf = self.config.behavior.dock_mode and self.dock_buf or self.buf
-	if not buf or not api.nvim_buf_is_valid(buf) then
-		return
-	end
+    local buf = self.config.behavior.dock_mode and self.dock_buf or self.buf
+    if not buf or not api.nvim_buf_is_valid(buf) then
+        return
+    end
 
-	if not pcall(require, "nvim-treesitter") then
-		returnfunction SignatureHelp:get_window_opts(width, height)
-		if self.current.dock_mode then
-			return self:get_dock_window_opts(width, height)
-		end
-	
-		-- Get cursor position
-		local cursor_pos = api.nvim_win_get_cursor(0)
-		local screen_pos = vim.fn.screenpos(0, cursor_pos[1], cursor_pos[2])
-		local row_offset = screen_pos.row - vim.fn.winline()
-	
-		return {
-			relative = "editor",
-			width = width,
-			height = height,
-			col = screen_pos.col - 1,
-			row = row_offset,
-			style = "minimal",
-			border = self.config.ui.border,
-			zindex = self.config.ui.zindex,
-		}
-	end
-	end
+    if not pcall(require, "nvim-treesitter") then
+        return
+    end
 
-	-- Store current window and buffer
-	local current_win = api.nvim_get_current_win()
-	local current_buf = api.nvim_get_current_buf()
+    -- Store current window and buffer
+    local current_win = api.nvim_get_current_win()
+    local current_buf = api.nvim_get_current_buf()
 
-	-- Apply treesitter highlighting
-	pcall(function()
-		require("nvim-treesitter.highlight").attach(buf, "markdown")
-	end)
+    -- Apply treesitter highlighting
+    pcall(function()
+        require("nvim-treesitter.highlight").attach(buf, "markdown")
+    end)
 
-	-- Restore focus
-	api.nvim_set_current_win(current_win)
-	api.nvim_set_current_buf(current_buf)
+    -- Restore focus
+    api.nvim_set_current_win(current_win)
+    api.nvim_set_current_buf(current_buf)
 end
 
 function SignatureHelp:process_signature_result(result)
@@ -303,15 +282,15 @@ function SignatureHelp:process_signature_result(result)
 end
 
 function SignatureHelp:create_window(contents)
-	-- Use the window module for creation
-	local win, buf = window.create_window(contents, self.config)
-	if win and buf then
-		self.win = win
-		self.buf = buf
-		self.visible = true
-		self:apply_highlights()
-	end
-	return win, buf
+    -- Use the window module for creation
+    local win, buf = window.create_window(contents, self.config)
+    if win and buf then
+        self.win = win
+        self.buf = buf
+        self.visible = true
+        self:apply_highlights()
+    end
+    return win, buf
 end
 
 function SignatureHelp:get_window_opts(width, height)
