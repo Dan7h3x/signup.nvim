@@ -76,7 +76,7 @@ opts = {
     silent = false,
     number = true,
     icons = {
-      parameter = "",
+      parameter = "",
       method = "󰡱",
       documentation = "󱪙",
     },
@@ -100,7 +100,7 @@ opts = {
     preview_parameters = true,
     debounce_time = 30,
     dock_toggle_key = "<Leader>sd",
-    toggle_key = "<C-k>",
+    toggle_key = "<C-k>", -- for normal mode
     dock_mode = {
       enabled = false,
       position = "bottom",
