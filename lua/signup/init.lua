@@ -81,18 +81,24 @@ local function markdown_for_signature_list(signatures, config)
   local lines, labels = {}, {}
   local number = config.number and #signatures > 1
   local max_method_len = 0
+  local seen_signatures = {} -- Track seen signatures to avoid duplicates
 
-  -- First pass to calculate alignment
-  if config.render_style.align_icons then
-    for _, signature in ipairs(signatures) do
-      max_method_len = math.max(max_method_len, #signature.label)
+  -- First pass to calculate alignment and filter duplicates
+  local unique_signatures = {}
+  for _, signature in ipairs(signatures) do
+    local sig_key = signature.label -- Use label as key for deduplication
+    if not seen_signatures[sig_key] then
+      seen_signatures[sig_key] = true
+      table.insert(unique_signatures, signature)
+      if config.render_style.align_icons then
+        max_method_len = math.max(max_method_len, #signature.label)
+      end
     end
   end
-
-  for index, signature in ipairs(signatures) do
-    if not config.render_style.compact then
-      table.insert(lines, "")
-    end
+  
+  -- Use unique signatures instead of all signatures
+  for index, signature in ipairs(unique_signatures) do
+    -- Record the line number for this signature
     table.insert(labels, #lines + 1)
 
     local suffix = number and (" " .. signature_index_comment(index)) or ""
@@ -100,22 +106,8 @@ local function markdown_for_signature_list(signatures, config)
 
     -- Method signature with syntax highlighting
     table.insert(lines, string.format("```%s", vim.bo.filetype))
-    -- table.insert(lines, string.format("%s Method:", config.icons.method))
     table.insert(lines, string.format("%s %s%s%s", config.icons.method, signature.label, padding, suffix))
     table.insert(lines, "```")
-
-    -- Parameters section
-    -- if signature.parameters and #signature.parameters > 0 then
-    --   if config.render_style.separator then
-    --     table.insert(lines, string.rep("─", 40))
-    --   end
-    --   table.insert(lines, string.format("%s Parameters:", config.icons.parameter))
-    --   for _, param in ipairs(signature.parameters) do
-    --     local param_doc = param.documentation and
-    --         string.format(" - %s", param.documentation.value or param.documentation) or ""
-    --     table.insert(lines, string.format("  • %s = %s", param.label, param_doc))
-    --   end
-    -- end
 
     -- Documentation section
     if signature.documentation then
@@ -129,7 +121,7 @@ local function markdown_for_signature_list(signatures, config)
       end
     end
 
-    if index ~= #signatures and config.render_style.separator then
+    if index ~= #unique_signatures and config.render_style.separator then
       table.insert(lines, string.rep("═", 40))
     end
   end
@@ -152,7 +144,7 @@ function SignatureHelp:create_float_window(contents)
 
   local win_config = {
     relative = "cursor",
-    row = row_offset - 1,
+    row = row_offset,  -- Removed -1 to reduce padding
     col = 0,
     width = max_width,
     height = max_height,
@@ -270,7 +262,7 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
   -- Iterate over signatures to highlight the active parameter
   for index, signature in ipairs(signatures) do
     local parameter = signature.activeParameter or active_parameter
-    if parameter and parameter >= 0 and parameter < #signature.parameters then
+    if parameter and parameter >= 0 and signature.parameters and parameter < #signature.parameters then
       local label = signature.parameters[parameter + 1].label
       if type(label) == "string" then
         -- Parse the signature string to find the exact range of the active parameter
@@ -281,8 +273,8 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
             self.buf,
             -1,
             "LspSignatureActiveParameter",
-            labels[index],
-            start_pos,
+            labels[index] + 1, -- Adjust for the code block start
+            start_pos - 1,
             end_pos
           )
         end
@@ -292,9 +284,9 @@ function SignatureHelp:set_active_parameter_highlights(active_parameter, signatu
           self.buf,
           -1,
           "LspSignatureActiveParameter",
-          labels[index],
-          start_pos + 5,
-          end_pos + 5
+          labels[index] + 1, -- Adjust for the code block start
+          start_pos,
+          end_pos
         )
       end
     end
@@ -364,8 +356,8 @@ function SignatureHelp:set_active_parameter_highlights_dock(active_parameter, si
             buf,
             -1,
             "LspSignatureActiveParameter",
-            labels[index],
-            start_pos,
+            labels[index] + 1, -- Adjust for the code block start
+            start_pos - 1,
             end_pos
           )
         end
@@ -375,9 +367,9 @@ function SignatureHelp:set_active_parameter_highlights_dock(active_parameter, si
           buf,
           -1,
           "LspSignatureActiveParameter",
-          labels[index],
-          start_pos + 5,
-          end_pos + 5
+          labels[index] + 1, -- Adjust for the code block start
+          start_pos,
+          end_pos
         )
       end
     end
@@ -535,6 +527,16 @@ function SignatureHelp:trigger()
   local client = self:get_active_client()
   if not client then return end
 
+  -- Cache the current cursor position to avoid redundant triggers
+  local cursor_pos = vim.api.nvim_win_get_cursor(0)
+  if self._last_cursor_pos and 
+     self._last_cursor_pos[1] == cursor_pos[1] and 
+     self._last_cursor_pos[2] == cursor_pos[2] and
+     self.visible then
+    return
+  end
+  self._last_cursor_pos = cursor_pos
+
   local params = vim.lsp.util.make_position_params(0, client.offset_encoding or "utf-16")
 
   vim.lsp.buf_request(bufnr, "textDocument/signatureHelp", params, function(err, result, ctx)
@@ -582,10 +584,18 @@ function SignatureHelp:detect_active_parameter(signature, bufnr)
 
   -- Find the nearest opening parenthesis before cursor
   local paren_pos = nil
+  local paren_stack = 0
   for i = col, 1, -1 do
-    if line:sub(i, i) == "(" then
-      paren_pos = i
-      break
+    local char = line:sub(i, i)
+    if char == ")" then
+      paren_stack = paren_stack + 1
+    elseif char == "(" then
+      if paren_stack == 0 then
+        paren_pos = i
+        break
+      else
+        paren_stack = paren_stack - 1
+      end
     end
   end
 
@@ -596,16 +606,18 @@ function SignatureHelp:detect_active_parameter(signature, bufnr)
   local in_string = false
   local string_char = nil
   local nested_parens = 0
+  local bracket_stack = 0
+  local brace_stack = 0
 
   for i = paren_pos + 1, col do
     local char = line:sub(i, i)
 
     -- Handle strings
-    if char == '"' or char == "'" then
+    if char == '"' or char == "'" or char == "`" then
       if not in_string then
         in_string = true
         string_char = char
-      elseif string_char == char then
+      elseif string_char == char and line:sub(i-1, i-1) ~= "\\" then
         in_string = false
       end
     end
@@ -615,7 +627,15 @@ function SignatureHelp:detect_active_parameter(signature, bufnr)
         nested_parens = nested_parens + 1
       elseif char == ")" then
         nested_parens = nested_parens - 1
-      elseif char == "," and nested_parens == 0 then
+      elseif char == "[" then
+        bracket_stack = bracket_stack + 1
+      elseif char == "]" then
+        bracket_stack = bracket_stack - 1
+      elseif char == "{" then
+        brace_stack = brace_stack + 1
+      elseif char == "}" then
+        brace_stack = brace_stack - 1
+      elseif char == "," and nested_parens == 0 and bracket_stack == 0 and brace_stack == 0 then
         comma_count = comma_count + 1
       end
     end
@@ -640,28 +660,28 @@ function SignatureHelp:setup_autocmds()
     if self.timer then
       vim.fn.timer_stop(self.timer)
     end
-    self.timer = vim.fn.timer_start(30, function()
+    self.timer = vim.fn.timer_start(self.config.debounce_time, function()
       self:trigger()
     end)
   end
-  local function visibility()
-    local visible = true
+  
+  local function is_completion_visible()
+    -- Check if any completion popup is visible
     if pcall(require, "cmp") then
-      visible = require("cmp").visible()
+      return require("cmp").visible()
     elseif pcall(require, "blink-cmp") then
-      visible = require("blink-cmp").is_visible()
+      return require("blink-cmp").is_visible()
     end
-    return visible
+    return vim.fn.pumvisible() ~= 0
   end
+  
   api.nvim_create_autocmd({ "CursorMovedI", "TextChangedI" }, {
     group = group,
     callback = function()
-      if visibility() then
+      if is_completion_visible() then
         self:hide()
-      elseif vim.fn.pumvisible() == 0 then
-        debounced_trigger()
       else
-        self:hide()
+        debounced_trigger()
       end
     end,
   })
@@ -710,11 +730,13 @@ function SignatureHelp:setup_autocmds()
     callback = function()
       if self.visible then
         self:apply_treesitter_highlighting()
-        self:set_active_parameter_highlights(
-          self.current_signatures.activeParameter,
-          self.current_signatures,
-          {}
-        )
+        if self.current_signatures then
+          self:set_active_parameter_highlights(
+            self.current_active_parameter,
+            self.current_signatures,
+            {}
+          )
+        end
       end
     end,
   })
