@@ -10,19 +10,15 @@ This Neovim plugin provides a signature help feature for LSP (Language Server Pr
 
 # ScreenShots (WIP)
 
-![signup_1](https://github.com/user-attachments/assets/e9319dcf-1d9d-4567-a500-a24d38933cb6)
-![signup_2](https://github.com/user-attachments/assets/192b0809-3e66-42bf-9e6e-c1eae744f7b8)
-![signup_3](https://github.com/user-attachments/assets/ca43b7a0-63fa-469c-8db0-df7a49dab483)
-
-![signup_def](https://github.com/user-attachments/assets/6c4d7e09-5baa-418f-a086-e60b4eb4b501)
-
-We have `dock` mode but its under dev for now, please take low expectations:
-![signup_dock](https://github.com/user-attachments/assets/40455737-a952-4a3f-ae1f-fadd7ad68ea2)
+![Image](https://github.com/user-attachments/assets/114bbad1-0ea0-4571-8719-3653d03e9b34)
+![Image](https://github.com/user-attachments/assets/94cfa026-297b-45c0-ad91-69719aa551e2)
+![Image](https://github.com/user-attachments/assets/c1b668d4-1711-455f-a435-42eb9fdc9ac1)
+![Image](https://github.com/user-attachments/assets/c3ff85e9-a2fb-4af2-bd8c-d51a8d6ad3fe)
 
 ## Features
 
-- **Signature Help**: Displays function signatures and parameter information in a floating window.
-- **Toggle Mode**: Toggle signature help in normal mode.
+- **Signature Help**: Displays function signatures and parameter information in a floating window with rich `lsp` support.
+- **Toggle Mode**: Toggle signature help in normal mode, `dock` mode.
 - **Customizable**: Highly customizable with options for icons, colors, and more.
 - **Integration**: Integrates with nvim-treesitter for syntax highlighting.
 - **Notifications**: Displays notifications for errors, warnings, and info messages.
@@ -91,20 +87,20 @@ opts = {
       fg = "#1a1a1a",
     },
     border = "solid",
+    dock_border = "rounded",
     winblend = 10,
     auto_close = true,
-    trigger_chars = { "(", "," },
+    trigger_chars = { "(", ",", ")" },
     max_height = 10,
     max_width = 40,
     floating_window_above_cur_line = true,
-    preview_parameters = true,
     debounce_time = 30,
     dock_toggle_key = "<Leader>sd",
-    toggle_key = "<C-k>", -- for normal mode
+    toggle_key = "<C-k>",
     dock_mode = {
       enabled = false,
       position = "bottom",
-      height = 3,
+      height = 4,
       padding = 1,
     },
     render_style = {
