@@ -82,6 +82,7 @@ opts = {
       documentation = "#4fd6be",
       default_value = "#a80888",
     },
+    active_parameter = true,        -- enable/disable the active_parameter coloring
     active_parameter_colors = {
       bg = "#86e1fc",
       fg = "#1a1a1a",
