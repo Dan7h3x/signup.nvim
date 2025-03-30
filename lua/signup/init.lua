@@ -37,6 +37,7 @@ function SignatureHelp.new()
       documentation = "#4fd6be",
       default_value = "#a80888",
     },
+    active_parameter = true,
     active_parameter_colors = {
       bg = "#86e1fc",
       fg = "#1a1a1a",
@@ -104,35 +105,6 @@ local function markdown_for_signature_list(signatures, config)
     if not config.render_style.compact and index < #signatures then
       table.insert(lines, "")
     end
-
-    -- Parameters section with improved formatting
-    -- if signature.parameters and #signature.parameters > 0 and config.preview_parameters then
-    --   if config.render_style.separator then
-    --     table.insert(lines, string.rep("─", 40))
-    --   end
-    --   table.insert(lines, string.format("%s Parameters:", config.icons.parameter))
-    --   for _, param in ipairs(signature.parameters) do
-    --     local param_doc = ""
-    --     local default_value = ""
-    --
-    --     -- Extract documentation and default value
-    --     if param.documentation then
-    --       param_doc = type(param.documentation) == "string" and param.documentation or param.documentation.value
-    --       default_value = SignatureHelp:extract_default_value(param)
-    --     end
-    --
-    --     -- Format parameter line
-    --     local param_line = string.format("  • %s", param.label)
-    --     if default_value ~= "" then
-    --       param_line = param_line .. string.format(" (default: %s)", default_value)
-    --     end
-    --     if param_doc ~= "" then
-    --       param_line = param_line .. string.format(" - %s", param_doc)
-    --     end
-    --
-    --     table.insert(lines, param_line)
-    --   end
-    -- end
 
     -- Documentation section with improved formatting
     if signature.documentation then
@@ -455,19 +427,22 @@ function SignatureHelp:display(result)
         api.nvim_buf_set_option(buf, "modifiable", true)
         api.nvim_buf_set_lines(buf, 0, -1, false, markdown)
         api.nvim_buf_set_option(buf, "modifiable", false)
-        self:set_active_parameter_highlights_dock(result.activeParameter, result.signatures, labels, buf)
+        if self.config.activeParameter then
+          self:set_active_parameter_highlights_dock(result.activeParameter, result.signatures, labels, buf)
+        end
         self:apply_treesitter_highlighting()
       end
     else
       self:create_float_window(markdown)
       api.nvim_buf_set_option(self.buf, "filetype", "markdown")
-      self:set_active_parameter_highlights(result.activeParameter, result.signatures, labels)
+      if self.config.activeParameter then
+        self:set_active_parameter_highlights(result.activeParameter, result.signatures, labels)
+      end
       self:apply_treesitter_highlighting()
     end
   else
     self:hide()
   end
-
   -- Restore focus to original window and buffer
   api.nvim_set_current_win(current_win)
   api.nvim_set_current_buf(current_buf)
