@@ -427,7 +427,7 @@ function SignatureHelp:display(result)
         api.nvim_buf_set_option(buf, "modifiable", true)
         api.nvim_buf_set_lines(buf, 0, -1, false, markdown)
         api.nvim_buf_set_option(buf, "modifiable", false)
-        if self.config.activeParameter then
+        if self.config.active_parameter then
           self:set_active_parameter_highlights_dock(result.activeParameter, result.signatures, labels, buf)
         end
         self:apply_treesitter_highlighting()
@@ -435,7 +435,7 @@ function SignatureHelp:display(result)
     else
       self:create_float_window(markdown)
       api.nvim_buf_set_option(self.buf, "filetype", "markdown")
-      if self.config.activeParameter then
+      if self.config.active_parameter then
         self:set_active_parameter_highlights(result.activeParameter, result.signatures, labels)
       end
       self:apply_treesitter_highlighting()
