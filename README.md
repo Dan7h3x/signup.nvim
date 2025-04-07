@@ -10,10 +10,10 @@ This Neovim plugin provides a signature help feature for LSP (Language Server Pr
 
 # ScreenShots (WIP)
 
-![Image](https://github.com/user-attachments/assets/114bbad1-0ea0-4571-8719-3653d03e9b34)
-![Image](https://github.com/user-attachments/assets/94cfa026-297b-45c0-ad91-69719aa551e2)
-![Image](https://github.com/user-attachments/assets/c1b668d4-1711-455f-a435-42eb9fdc9ac1)
-![Image](https://github.com/user-attachments/assets/c3ff85e9-a2fb-4af2-bd8c-d51a8d6ad3fe)
+![Image](https://github.com/user-attachments/assets/5d6c5002-9f30-4f46-9795-a7f9c6540503)
+![Image](https://github.com/user-attachments/assets/205e2b16-0927-4e6b-8e67-141f4dde31eb)
+![Image](https://github.com/user-attachments/assets/13a379e2-f372-4aaf-a891-f69dab4184a5)
+![Image](https://github.com/user-attachments/assets/1940c8aa-3e9a-4bbb-a18c-778004ba018b)
 
 ## Features
 
@@ -21,7 +21,6 @@ This Neovim plugin provides a signature help feature for LSP (Language Server Pr
 - **Toggle Mode**: Toggle signature help in normal mode, `dock` mode.
 - **Customizable**: Highly customizable with options for icons, colors, and more.
 - **Integration**: Integrates with nvim-treesitter for syntax highlighting.
-- **Notifications**: Displays notifications for errors, warnings, and info messages.
 
 ## Installation
 
