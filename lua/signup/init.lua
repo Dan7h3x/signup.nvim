@@ -641,18 +641,35 @@ function SignatureHelp:trigger()
       self:display_dock(markdown, active_range)
     end
   else
-    vim.lsp.buf.signature_help({
-      bufnr = bufnr,
-      focusable = false,
-      border = self.config.border,
-      max_width = self.config.max_width,
-      max_height = self.config.max_height,
-      relative = "cursor",
-      row = self.config.floating_window_above_cur_line and -1 or 1,
-      col = 0,
-      title = "Signup",
-      title_pos = "center"
-    })
+    local cmp_ok, cmp = pcall(require, "nvim-cmp")
+    local blink_ok, blink = pcall(require, "blink-cmp")
+    if cmp_ok and not cmp.visible() then
+      vim.lsp.buf.signature_help({
+        bufnr = bufnr,
+        focusable = false,
+        border = self.config.border,
+        max_width = self.config.max_width,
+        max_height = self.config.max_height,
+        relative = "cursor",
+        row = self.config.floating_window_above_cur_line and -1 or 1,
+        col = 0,
+        title = "Signup",
+        title_pos = "center"
+      })
+    elseif blink_ok and not blink.is_visible() then
+      vim.lsp.buf.signature_help({
+        bufnr = bufnr,
+        focusable = false,
+        border = self.config.border,
+        max_width = self.config.max_width,
+        max_height = self.config.max_height,
+        relative = "cursor",
+        row = self.config.floating_window_above_cur_line and -1 or 1,
+        col = 0,
+        title = "Signup",
+        title_pos = "center"
+      })
+    end
   end
 end
 
