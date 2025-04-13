@@ -653,6 +653,7 @@ function SignatureHelp:trigger()
         relative = "cursor",
         row = self.config.floating_window_above_cur_line and -1 or 1,
         col = 0,
+        anchor_bias = "below",
         title = "Signup",
         title_pos = "center"
       })
@@ -666,6 +667,7 @@ function SignatureHelp:trigger()
         relative = "cursor",
         row = self.config.floating_window_above_cur_line and -1 or 1,
         col = 0,
+        anchor_bias = "below",
         title = "Signup",
         title_pos = "center"
       })
