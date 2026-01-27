@@ -658,7 +658,7 @@ function SignatureHelp:trigger()
 	else
 		local cmp_ok, cmp = pcall(require, "cmp")
 		local blink_ok, blink = pcall(require, "blink-cmp")
-		if cmp_ok and not cmp.visible() then
+		if cmp_ok and cmp.visible and not cmp.visible() then
 			vim.lsp.buf.signature_help({
 				bufnr = bufnr,
 				focusable = false,
